@@ -92,19 +92,6 @@ def _caso_desafio_override(ref: ReferenciaParseada) -> Optional[Dict[str, Any]]:
             "fonte": "Datajud",
         }
 
-    # Caso de cobertura STF usado nos testes finais.
-    if numero in {"RE574706/PR", "RE574706"}:
-        return {
-            "encontrado": True,
-            "numero_real": "RE 574706/PR",
-            "assunto": "Exclusao do ICMS da base de calculo do PIS/COFINS",
-            "grau": "superior",
-            "dispositivo": "TEMA_FIXADO",
-            "flags": ["TEM_ACORDAO"],
-            "url_fonte": "https://jurisprudencia.stf.jus.br/pages/search/sjur368783/false",
-            "fonte": "STF Jurisprudencia",
-        }
-
     return None
 
 
@@ -312,6 +299,13 @@ async def verificar_superior_datajud(ref: ReferenciaParseada) -> Dict[str, Any]:
 
     # DataJud publico nem sempre expõe endpoint direto para superiores (ex.: STF/TST).
     # Nesses casos, devolvemos "nao encontrado" sem erro tecnico para nao poluir a analise.
+    if ref.tribunal_inferido in {"STF", "TST"}:
+        return {
+            "encontrado": False,
+            "fonte": "Datajud",
+            "flags": ["FONTE_SUPERIOR_NAO_CONFIGURADA"],
+        }
+
     url = f"{DATAJUD_BASE}/api_publica_{indice}/_search"
     auth_value = DATAJUD_API_KEY.strip()
     if auth_value and not auth_value.startswith("APIKey "):
@@ -359,25 +353,8 @@ async def verificar_superior_datajud(ref: ReferenciaParseada) -> Dict[str, Any]:
             "url_fonte": "https://datajud-wiki.cnj.jus.br",
             "fonte": "Datajud",
         }
-    except httpx.HTTPStatusError as e:
-        status_code = e.response.status_code if e.response is not None else None
-        if status_code in {400, 403, 404}:
-            return {
-                "encontrado": False,
-                "fonte": "Datajud",
-                "flags": ["FONTE_SUPERIOR_NAO_CONFIGURADA"],
-            }
-        return {
-            "encontrado": False,
-            "fonte": "Datajud",
-            "flags": ["FONTE_SUPERIOR_INDISPONIVEL"],
-        }
     except httpx.HTTPError as e:
-        return {
-            "encontrado": False,
-            "fonte": "Datajud",
-            "flags": ["FONTE_SUPERIOR_INDISPONIVEL"],
-        }
+        return {"encontrado": False, "erro": f"DataJud superior: {str(e)}", "fonte": "DataJud"}
 
 
 async def sugerir_substituicao(tema_inferido: str, tribunal_alvo: str = "STJ") -> Dict[str, Any]:

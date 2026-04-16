@@ -1,0 +1,1 @@
+PASSOU | API operacional | status=ok
