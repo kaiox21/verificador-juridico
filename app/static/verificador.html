@@ -388,8 +388,8 @@
 <body>
   <main class="wrap">
     <section class="hero">
-      <h1>Radar de Referencias Juridicas</h1>
-      <p>Teste, valide e audite citacoes de peticoes com resposta estruturada da API.</p>
+      <h1>Verificador de Referencias Juridicas</h1>
+      <p>Confere a existencia da referencia, analisa o conteudo citado e avalia a aderencia ao contexto da peticao.</p>
     </section>
 
     <section class="card">
@@ -605,6 +605,8 @@
       }
     });
 
+    const API_BASE = window.location.protocol === "file:" ? "http://localhost:8000" : "";
+
     async function submitForm(event) {
       event.preventDefault();
       setMeta("Consultando API...", "warn");
@@ -617,7 +619,7 @@
       };
 
       try {
-        const response = await fetch("/verificar", {
+        const response = await fetch(`${API_BASE}/verificar`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify(payload)

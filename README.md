@@ -1,4 +1,4 @@
-﻿# Verificador de Referências Jurídicas
+# Verificador de Referências Jurídicas
 
 API REST para validar referências jurídicas citadas em peças processuais geradas (ou apoiadas) por IA, reduzindo risco de alucinações e citações inadequadas.
 
@@ -197,17 +197,19 @@ Conteúdo salvo por linha:
 - evidência de fonte
 - resultado final
 
-## Deploy (Render)
+## Deploy (Vercel)
 
-1. Faça push do repositório no GitHub
-2. Crie um **New Web Service** no Render
-3. Configure comando de start:
+1. Faça push do repositório no GitHub.
+2. No painel da Vercel, clique em **Add New... > Project** e selecione o repositório.
+3. Mantenha as configurações padrão de build (o arquivo `vercel.json` já está configurado).
+4. Em **Environment Variables**, cadastre:
+   - `DATAJUD_API_KEY`
+   - `GEMINI_API_KEYS` (opcional)
+   - `GROQ_API_KEY` (opcional)
+   - `CACHE_TTL_SECONDS` (opcional)
+5. Faça o deploy.
 
-```bash
-uvicorn app.main:app --host 0.0.0.0 --port $PORT
-```
-
-4. Configure variáveis de ambiente (`DATAJUD_API_KEY`, `GEMINI_API_KEYS` e/ou `GROQ_API_KEY`)
+Observação: a rota de interface continua em `/ui` e a documentação em `/docs`.
 
 ## Stack
 

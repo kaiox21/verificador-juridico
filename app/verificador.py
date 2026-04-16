@@ -297,6 +297,15 @@ async def verificar_superior_datajud(ref: ReferenciaParseada) -> Dict[str, Any]:
     if not indice:
         return {"encontrado": False, "erro": f"Tribunal {ref.tribunal_inferido} nao coberto"}
 
+    # DataJud publico nem sempre expõe endpoint direto para superiores (ex.: STF/TST).
+    # Nesses casos, devolvemos "nao encontrado" sem erro tecnico para nao poluir a analise.
+    if ref.tribunal_inferido in {"STF", "TST"}:
+        return {
+            "encontrado": False,
+            "fonte": "Datajud",
+            "flags": ["FONTE_SUPERIOR_NAO_CONFIGURADA"],
+        }
+
     url = f"{DATAJUD_BASE}/api_publica_{indice}/_search"
     auth_value = DATAJUD_API_KEY.strip()
     if auth_value and not auth_value.startswith("APIKey "):
