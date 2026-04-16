@@ -299,13 +299,6 @@ async def verificar_superior_datajud(ref: ReferenciaParseada) -> Dict[str, Any]:
 
     # DataJud publico nem sempre expõe endpoint direto para superiores (ex.: STF/TST).
     # Nesses casos, devolvemos "nao encontrado" sem erro tecnico para nao poluir a analise.
-    if ref.tribunal_inferido in {"STF", "TST"}:
-        return {
-            "encontrado": False,
-            "fonte": "Datajud",
-            "flags": ["FONTE_SUPERIOR_NAO_CONFIGURADA"],
-        }
-
     url = f"{DATAJUD_BASE}/api_publica_{indice}/_search"
     auth_value = DATAJUD_API_KEY.strip()
     if auth_value and not auth_value.startswith("APIKey "):
@@ -353,6 +346,16 @@ async def verificar_superior_datajud(ref: ReferenciaParseada) -> Dict[str, Any]:
             "url_fonte": "https://datajud-wiki.cnj.jus.br",
             "fonte": "Datajud",
         }
+    except httpx.HTTPStatusError as e:
+        status_code = e.response.status_code if e.response is not None else None
+        if status_code in {400, 403, 404}:
+            return {
+                "encontrado": False,
+                "fonte": "Datajud",
+                "flags": ["FONTE_SUPERIOR_NAO_CONFIGURADA"],
+                "erro": f"DataJud superior HTTP {status_code}",
+            }
+        return {"encontrado": False, "erro": f"DataJud superior: {str(e)}", "fonte": "DataJud"}
     except httpx.HTTPError as e:
         return {"encontrado": False, "erro": f"DataJud superior: {str(e)}", "fonte": "DataJud"}
 
