@@ -3,6 +3,7 @@ from dotenv import load_dotenv
 load_dotenv()
 
 from pathlib import Path
+import logging
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
@@ -13,8 +14,13 @@ from app.models import (
     VerificacaoResponse,
     VerificacaoLoteRequest,
     VerificacaoLoteResponse,
+    Existencia,
+    Conteudo,
+    Adequacao,
 )
 from app.pipeline import executar_pipeline
+
+logger = logging.getLogger(__name__)
 
 app = FastAPI(
     title="Verificador de Referencias Juridicas",
@@ -44,7 +50,28 @@ def health():
 
 @app.post("/verificar", response_model=VerificacaoResponse)
 async def verificar(body: VerificacaoRequest):
-    return await executar_pipeline(body.referencia, body.contexto)
+    try:
+        return await executar_pipeline(body.referencia, body.contexto)
+    except Exception as exc:
+        logger.exception("Falha inesperada no endpoint /verificar")
+        return VerificacaoResponse(
+            referencia_normalizada=body.referencia,
+            tribunal_inferido="INDETERMINADO",
+            existencia=Existencia(
+                status="NAO_ENCONTRADO",
+                flags=[f"ERRO_INTERNO: {type(exc).__name__}"],
+            ),
+            conteudo=Conteudo(flags=["ANALISE_INDISPONIVEL"]),
+            adequacao=Adequacao(
+                tese_inferida_na_peticao="Analise indisponivel",
+                adequacao_tematica="INDETERMINADO",
+                adequacao_dispositivo="INDETERMINADO",
+                peso_precedencial="INDETERMINADO",
+                justificativa=f"Erro interno: {type(exc).__name__}: {str(exc)}",
+            ),
+            recomendacao="REVISAR",
+            nivel_urgencia="ATENCAO",
+        )
 
 
 @app.post("/verificar-lote", response_model=VerificacaoLoteResponse)

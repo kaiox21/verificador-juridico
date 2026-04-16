@@ -35,6 +35,8 @@ GROQ_MODEL = os.getenv("GROQ_MODEL", "llama-3.1-8b-instant")
 MAX_RETRIES = 3
 RETRY_BASE_DELAY = 4  # segundos (dobra a cada tentativa: 4s, 8s, 16s)
 RATE_LIMIT_DEFAULT_COOLDOWN = 30  # fallback quando a API nao envia Retry-After
+LLM_HTTP_TIMEOUT_SECONDS = float(os.getenv("LLM_HTTP_TIMEOUT_SECONDS", "8"))
+LLM_TOTAL_TIMEOUT_SECONDS = float(os.getenv("LLM_TOTAL_TIMEOUT_SECONDS", "9"))
 
 
 class RateLimitError(Exception):
@@ -105,7 +107,7 @@ async def _chamar_gemini_com_chave(prompt: str, chave: str) -> str:
         "contents": [{"parts": [{"text": prompt}]}],
         "generationConfig": {"temperature": 0.1, "maxOutputTokens": 1000}
     }
-    async with httpx.AsyncClient(timeout=30.0) as client:
+    async with httpx.AsyncClient(timeout=LLM_HTTP_TIMEOUT_SECONDS) as client:
         resp = await client.post(GEMINI_URL, json=body, params=params, headers=headers)
         resp.raise_for_status()
         data = resp.json()
@@ -127,7 +129,7 @@ async def _chamar_groq(prompt: str) -> str:
         "temperature": 0.1,
         "max_tokens": 1000
     }
-    async with httpx.AsyncClient(timeout=30.0) as client:
+    async with httpx.AsyncClient(timeout=LLM_HTTP_TIMEOUT_SECONDS) as client:
         resp = await client.post(GROQ_URL, json=body, headers=headers)
         try:
             resp.raise_for_status()
@@ -141,7 +143,7 @@ async def _chamar_groq(prompt: str) -> str:
 
 async def chamar_llm(prompt: str) -> str:
     """
-    Tenta todas as chaves Gemini em rodízio.
+    Tenta todas as chaves Gemini em rod?zio.
     Se todas retornarem 429, cai no fallback Groq.
     """
     if not GEMINI_KEYS:
@@ -179,14 +181,14 @@ async def chamar_llm(prompt: str) -> str:
                 )
                 continue
             elif e.response.status_code == 404:
-                logger.error("Modelo Gemini não encontrado. Verifique GEMINI_URL.")
+                logger.error("Modelo Gemini n?o encontrado. Verifique GEMINI_URL.")
                 raise
             else:
                 logger.error(f"Erro HTTP Gemini: {e.response.status_code}")
                 raise
 
         except httpx.TimeoutException:
-            logger.warning(f"Timeout na chave {_mascarar_chave(chave)}. Tentando próxima...")
+            logger.warning(f"Timeout na chave {_mascarar_chave(chave)}. Tentando pr?xima...")
             await asyncio.sleep(1)
             continue
 
@@ -196,7 +198,7 @@ async def chamar_llm(prompt: str) -> str:
         return await _chamar_groq(prompt)
     except Exception as e:
         raise RateLimitError(
-            "Todas as chaves Gemini atingiram rate limit e o fallback Groq também falhou. "
+            "Todas as chaves Gemini atingiram rate limit e o fallback Groq tamb?m falhou. "
             f"Detalhe do fallback Groq: {type(e).__name__}: {str(e)}"
         ) from e
 
@@ -299,30 +301,33 @@ async def analisar_adequacao(
             "nivel_urgencia": "ATENCAO"
         }
 
-    try:
-        # Passagem 1
+    async def _executar_duas_passagens() -> Dict[str, Any]:
         resultado_tese = await inferir_tese(referencia, contexto)
-        tese = resultado_tese.get("tese_inferida", "não identificada")
+        tese = resultado_tese.get("tese_inferida", "n?o identificada")
 
-        await asyncio.sleep(1)  # pausa para não estourar quota entre as passagens
+        await asyncio.sleep(0.2)
 
-        # Passagem 2
         resultado_adequacao = await avaliar_adequacao(
             tese_inferida=tese,
-            assunto_real=assunto_real or "não identificado",
-            dispositivo=dispositivo or "não identificado",
-            grau=grau or "não identificado",
-            flags=flags
+            assunto_real=assunto_real or "n?o identificado",
+            dispositivo=dispositivo or "n?o identificado",
+            grau=grau or "n?o identificado",
+            flags=flags,
         )
 
         return {
             "tese_inferida_na_peticao": tese,
-            **resultado_adequacao
+            **resultado_adequacao,
         }
 
+    try:
+        return await asyncio.wait_for(
+            _executar_duas_passagens(),
+            timeout=LLM_TOTAL_TIMEOUT_SECONDS,
+        )
     except RateLimitError as e:
         return {
-            "tese_inferida_na_peticao": "Análise indisponível (rate limit)",
+            "tese_inferida_na_peticao": "An?lise indispon?vel (rate limit)",
             "adequacao_tematica": "INDETERMINADO",
             "adequacao_dispositivo": "INDETERMINADO",
             "peso_precedencial": "INDETERMINADO",
@@ -331,10 +336,21 @@ async def analisar_adequacao(
             "nivel_urgencia": "ATENCAO",
             "erro": "rate_limit"
         }
-    except Exception as e:
-        logger.exception("Falha inesperada na análise LLM")
+    except asyncio.TimeoutError:
         return {
-            "tese_inferida_na_peticao": "Análise indisponível (erro interno de LLM)",
+            "tese_inferida_na_peticao": "An?lise indispon?vel (timeout)",
+            "adequacao_tematica": "INDETERMINADO",
+            "adequacao_dispositivo": "INDETERMINADO",
+            "peso_precedencial": "INDETERMINADO",
+            "justificativa": "A camada de LLM excedeu o tempo limite configurado.",
+            "recomendacao": "REVISAR",
+            "nivel_urgencia": "ATENCAO",
+            "erro": "llm_timeout"
+        }
+    except Exception as e:
+        logger.exception("Falha inesperada na an?lise LLM")
+        return {
+            "tese_inferida_na_peticao": "An?lise indispon?vel (erro interno de LLM)",
             "adequacao_tematica": "INDETERMINADO",
             "adequacao_dispositivo": "INDETERMINADO",
             "peso_precedencial": "INDETERMINADO",
