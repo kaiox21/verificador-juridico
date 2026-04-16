@@ -1,10 +1,11 @@
 import httpx
 import re
+import os
 from typing import Optional, Dict, Any
 from app.parser import ReferenciaParseada
 
 DATAJUD_BASE = "https://api-publica.datajud.cnj.jus.br"
-DATAJUD_API_KEY = "APIKey cDZHYzlZa0JadVREZDJCendFbXNpVXgzZXRKTmFHWjZlSmxUZXpDNTZ4Nk1PZENob2lOM3p3Z1pMZE9hTjFZSA=="
+DATAJUD_API_KEY = os.getenv("DATAJUD_API_KEY", "")
 
 # Códigos TPU relevantes
 TPU_FLAGS = {
@@ -29,6 +30,9 @@ TRIBUNAL_PARA_INDICE = {
 
 async def verificar_datajud(ref: ReferenciaParseada) -> Dict[str, Any]:
     """Verifica processo CNJ no Datajud."""
+    if not DATAJUD_API_KEY:
+        return {"encontrado": False, "erro": "DATAJUD_API_KEY nao configurada no ambiente."}
+
     indice = TRIBUNAL_PARA_INDICE.get(ref.tribunal_inferido)
     if not indice:
         return {"encontrado": False, "erro": f"Tribunal {ref.tribunal_inferido} não coberto"}
