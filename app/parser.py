@@ -25,25 +25,25 @@ class ReferenciaParseada:
     numero_tribunal: Optional[str] = None
 
 
-# Mapa de código TR → sigla do tribunal (parcial)
+# Mapa de codigo TR -> sigla do tribunal (CNJ)
 TR_PARA_TRIBUNAL = {
     "01": "TJAC", "02": "TJAL", "03": "TJAP", "04": "TJAM", "05": "TJBA",
-    "06": "TJCE", "07": "TJDF", "08": "TJGO", "09": "TJMA", "10": "TJMT",
-    "11": "TJMS", "12": "TJMG", "13": "TJPA", "14": "TJPB", "15": "TJPR",
-    "16": "TJPE", "17": "TJPI", "18": "TJRJ", "19": "TJRN", "20": "TJRS",
-    "21": "TJRO", "22": "TJRR", "23": "TJSC", "24": "TJSP", "25": "TJSE",
-    "26": "TJTO",
+    "06": "TJCE", "07": "TJDFT", "08": "TJES", "09": "TJGO", "10": "TJMA",
+    "11": "TJMT", "12": "TJMS", "13": "TJMG", "14": "TJPA", "15": "TJPB",
+    "16": "TJPR", "17": "TJPE", "18": "TJPI", "19": "TJRJ", "20": "TJRN",
+    "21": "TJRS", "22": "TJRO", "23": "TJRR", "24": "TJSC", "25": "TJSE",
+    "26": "TJSP", "27": "TJTO",
 }
 
 J_PARA_JUSTICA = {
-    "1": "JF",   # Justiça Federal
-    "2": "JT",   # Justiça do Trabalho
-    "3": "JE",   # Justiça Eleitoral
-    "4": "JM",   # Justiça Militar
+    "1": "JF",   # Justica Federal (compat)
+    "2": "JT",   # Justica do Trabalho
+    "3": "JE",   # Justica Eleitoral
+    "4": "JF",   # Justica Federal
     "5": "TST",  # TST
     "6": "STM",  # STM
     "7": "STF",  # STF
-    "8": "JE",   # Justiça Estadual
+    "8": "JE",   # Justica Estadual
     "9": "STJ",  # STJ
 }
 
@@ -55,7 +55,7 @@ CLASSES_SUPERIORES = [
 
 
 def validar_digito_cnj(seq: str, digito: str, ano: str, j: str, tr: str, vara: str) -> bool:
-    """Valida dígito verificador CNJ pelo algoritmo módulo 97-10 (ISO 7064)."""
+    """Valida digito verificador CNJ pelo algoritmo modulo 97-10 (ISO 7064)."""
     numero_base = seq + ano + j + tr + vara
     try:
         digito_calculado = 98 - (int(numero_base) * 100 % 97)
@@ -65,19 +65,17 @@ def validar_digito_cnj(seq: str, digito: str, ano: str, j: str, tr: str, vara: s
 
 
 def parse_referencia(referencia: str) -> ReferenciaParseada:
-    """Camada 0: parseia e valida localmente a referência jurídica."""
+    """Camada 0: parseia e valida localmente a referencia juridica."""
     flags = []
 
-    # Tenta padrão CNJ: NNNNNNN-DD.AAAA.J.TR.OOOO
-    cnj_pattern = re.compile(
-        r"(\d{7})-(\d{2})\.(\d{4})\.(\d)\.(\d{2})\.(\d{4})"
-    )
+    # Tenta padrao CNJ: NNNNNNN-DD.AAAA.J.TR.OOOO
+    cnj_pattern = re.compile(r"(\d{7})-(\d{2})\.(\d{4})\.(\d)\.(\d{2})\.(\d{4})")
     match_cnj = cnj_pattern.search(referencia)
 
     if match_cnj:
         seq, digito, ano, j, tr, vara = match_cnj.groups()
 
-        # Validar dígito verificador
+        # Validar digito verificador
         if not validar_digito_cnj(seq, digito, ano, j, tr, vara):
             flags.append("DIGITO_INVALIDO")
 
@@ -90,7 +88,7 @@ def parse_referencia(referencia: str) -> ReferenciaParseada:
         elif ano_int < 1988:
             flags.append("ANO_SUSPEITO")
 
-        # Flag de grau (vara != 0000 → 1º grau)
+        # Flag de grau (vara != 0000 -> 1o grau)
         if vara != "0000":
             flags.append("VARA_NAO_ZERO_PRIMEIRO_GRAU")
 
@@ -99,8 +97,9 @@ def parse_referencia(referencia: str) -> ReferenciaParseada:
         if j in J_PARA_JUSTICA:
             if j == "8":
                 tribunal = TR_PARA_TRIBUNAL.get(tr, f"TJ_{tr}")
-            elif j == "1":
-                tribunal = f"TRF_{tr}"
+            elif j in {"1", "4"}:
+                # CNJ federal costuma vir como .4.TR.; mantemos "1" por compatibilidade.
+                tribunal = f"TRF{int(tr)}" if tr.isdigit() else f"TRF_{tr}"
             else:
                 tribunal = J_PARA_JUSTICA[j]
 
@@ -112,15 +111,17 @@ def parse_referencia(referencia: str) -> ReferenciaParseada:
             numero_limpo=numero_limpo,
             tribunal_inferido=tribunal,
             flags=flags,
-            seq=seq, digito=digito, ano=ano, j=j, tr=tr, vara=vara,
+            seq=seq,
+            digito=digito,
+            ano=ano,
+            j=j,
+            tr=tr,
+            vara=vara,
         )
 
-    # Tenta padrão tribunal superior: REsp 1.810.170/RS
+    # Tenta padrao tribunal superior: REsp 1.810.170/RS
     for classe in CLASSES_SUPERIORES:
-        pattern = re.compile(
-            rf"({re.escape(classe)})\s*([\d.,]+)(?:/([A-Z]{{2}}))?",
-            re.IGNORECASE
-        )
+        pattern = re.compile(rf"({re.escape(classe)})\s*([\d.,]+)(?:/([A-Z]{{2}}))?", re.IGNORECASE)
         match = pattern.search(referencia)
         if match:
             classe_encontrada = match.group(1).upper()
