@@ -13,7 +13,7 @@ class VerificacaoLoteRequest(BaseModel):
 
 
 class Existencia(BaseModel):
-    status: str
+    status: str  # EXISTE, EXISTE_COM_DIVERGENCIA, NAO_ENCONTRADO, FORMATO_INVALIDO
     numero_real: Optional[str] = None
     fonte: Optional[str] = None
     url_fonte: Optional[str] = None
@@ -30,9 +30,9 @@ class Conteudo(BaseModel):
 
 class Adequacao(BaseModel):
     tese_inferida_na_peticao: Optional[str] = None
-    adequacao_tematica: Optional[str] = None
-    adequacao_dispositivo: Optional[str] = None
-    peso_precedencial: Optional[str] = None
+    adequacao_tematica: Optional[str] = None  # ADEQUADO, PARCIALMENTE_ADEQUADO, INADEQUADO
+    adequacao_dispositivo: Optional[str] = None  # UTIL, PARCIALMENTE_UTIL, INUTIL
+    peso_precedencial: Optional[str] = None  # ALTO, MEDIO, BAIXO, NULO
     justificativa: Optional[str] = None
 
 
@@ -52,11 +52,13 @@ class SugestaoSubstituicao(BaseModel):
 class VerificacaoResponse(BaseModel):
     referencia_normalizada: str
     tribunal_inferido: str
+
     existencia: Existencia
     conteudo: Conteudo
     adequacao: Adequacao
-    recomendacao: str
-    nivel_urgencia: str
+
+    recomendacao: str  # MANTER, CORRIGIR, REVISAR, SUBSTITUIR, REMOVER
+    nivel_urgencia: str  # OK, ATENCAO, CRITICO
     sugestao_substituicao: Optional[SugestaoSubstituicao] = None
 
 

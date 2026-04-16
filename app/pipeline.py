@@ -10,26 +10,42 @@ def _deve_sugerir_substituicao(recomendacao: str) -> bool:
 
 
 async def executar_pipeline(referencia: str, contexto: str) -> VerificacaoResponse:
+    """Orquestra as 4 camadas do pipeline de verificacao."""
+
+    # Camada 0 - Parse e validacao local
     ref = parse_referencia(referencia)
 
+    # Resposta antecipada se formato invalido
     if ref.tipo == "DESCONHECIDO":
         resposta = VerificacaoResponse(
             referencia_normalizada=referencia,
             tribunal_inferido="DESCONHECIDO",
-            existencia=Existencia(status="FORMATO_INVALIDO", flags=ref.flags),
+            existencia=Existencia(
+                status="FORMATO_INVALIDO",
+                flags=ref.flags,
+            ),
             conteudo=Conteudo(),
-            adequacao=Adequacao(justificativa="Nao foi possivel identificar o formato da referencia."),
+            adequacao=Adequacao(
+                justificativa="Nao foi possivel identificar o formato da referencia.",
+            ),
             recomendacao="REMOVER",
             nivel_urgencia="CRITICO",
         )
-        registrar_auditoria({
-            "entrada": {"referencia": referencia, "contexto": contexto},
-            "parse": {"tipo": ref.tipo, "tribunal_inferido": ref.tribunal_inferido,
-                      "numero_limpo": ref.numero_limpo, "flags": ref.flags},
-            "resultado": resposta.model_dump(),
-        })
+        registrar_auditoria(
+            {
+                "entrada": {"referencia": referencia, "contexto": contexto},
+                "parse": {
+                    "tipo": ref.tipo,
+                    "tribunal_inferido": ref.tribunal_inferido,
+                    "numero_limpo": ref.numero_limpo,
+                    "flags": ref.flags,
+                },
+                "resultado": resposta.model_dump(),
+            }
+        )
         return resposta
 
+    # Camada 1 - Verificacao de existencia
     resultado_existencia = await verificar_existencia(ref)
 
     flags_existencia = list(ref.flags)
@@ -41,8 +57,12 @@ async def executar_pipeline(referencia: str, contexto: str) -> VerificacaoRespon
         existencia = Existencia(status="NAO_ENCONTRADO", flags=flags_existencia)
 
         adequacao_result = await analisar_adequacao(
-            referencia=referencia, contexto=contexto,
-            assunto_real=None, dispositivo=None, grau=None, flags=flags_existencia,
+            referencia=referencia,
+            contexto=contexto,
+            assunto_real=None,
+            dispositivo=None,
+            grau=None,
+            flags=flags_existencia,
         )
 
         recomendacao = adequacao_result.get("recomendacao", "REMOVER")
@@ -58,20 +78,30 @@ async def executar_pipeline(referencia: str, contexto: str) -> VerificacaoRespon
             tribunal_inferido=ref.tribunal_inferido,
             existencia=existencia,
             conteudo=Conteudo(flags=["PROCESSO_NAO_LOCALIZADO"]),
-            adequacao=Adequacao(**{k: v for k, v in adequacao_result.items() if k in Adequacao.model_fields}),
+            adequacao=Adequacao(
+                **{k: v for k, v in adequacao_result.items() if k in Adequacao.model_fields}
+            ),
             recomendacao=recomendacao,
             nivel_urgencia=adequacao_result.get("nivel_urgencia", "CRITICO"),
             sugestao_substituicao=sugestao,
         )
-        registrar_auditoria({
-            "entrada": {"referencia": referencia, "contexto": contexto},
-            "parse": {"tipo": ref.tipo, "tribunal_inferido": ref.tribunal_inferido,
-                      "numero_limpo": ref.numero_limpo, "flags": ref.flags},
-            "evidencia": resultado_existencia,
-            "resultado": resposta.model_dump(),
-        })
+
+        registrar_auditoria(
+            {
+                "entrada": {"referencia": referencia, "contexto": contexto},
+                "parse": {
+                    "tipo": ref.tipo,
+                    "tribunal_inferido": ref.tribunal_inferido,
+                    "numero_limpo": ref.numero_limpo,
+                    "flags": ref.flags,
+                },
+                "evidencia": resultado_existencia,
+                "resultado": resposta.model_dump(),
+            }
+        )
         return resposta
 
+    # Processo encontrado - verificar divergencias
     numero_real = resultado_existencia.get("numero_real", ref.numero_limpo)
     uf_real = resultado_existencia.get("uf_real")
 
@@ -90,6 +120,7 @@ async def executar_pipeline(referencia: str, contexto: str) -> VerificacaoRespon
         flags=flags_existencia,
     )
 
+    # Camada 2 - Conteudo e metadados
     assunto = resultado_existencia.get("assunto") or resultado_existencia.get("ementa_parcial")
     grau = resultado_existencia.get("grau")
     flags_conteudo = list(resultado_existencia.get("flags", []))
@@ -97,15 +128,27 @@ async def executar_pipeline(referencia: str, contexto: str) -> VerificacaoRespon
     dispositivo = resultado_existencia.get("dispositivo") or "NAO_IDENTIFICADO"
     if "EXTINTO_SEM_MERITO" in flags_conteudo:
         dispositivo = "EXTINTO_SEM_MERITO"
+        if "EXTINTO_SEM_MERITO" not in flags_conteudo:
+            flags_conteudo.append("EXTINTO_SEM_MERITO")
     elif "TEM_ACORDAO" in flags_conteudo:
         dispositivo = "COM_ACORDAO"
 
-    conteudo = Conteudo(assunto_real=assunto, dispositivo=dispositivo, grau=grau, flags=flags_conteudo)
+    conteudo = Conteudo(
+        assunto_real=assunto,
+        dispositivo=dispositivo,
+        grau=grau,
+        flags=flags_conteudo,
+    )
 
+    # Camada 3 - Adequacao via LLM
     todas_flags = flags_existencia + flags_conteudo
     adequacao_result = await analisar_adequacao(
-        referencia=referencia, contexto=contexto,
-        assunto_real=assunto, dispositivo=dispositivo, grau=grau, flags=todas_flags,
+        referencia=referencia,
+        contexto=contexto,
+        assunto_real=assunto,
+        dispositivo=dispositivo,
+        grau=grau,
+        flags=todas_flags,
     )
 
     recomendacao = adequacao_result.get("recomendacao", "REVISAR")
@@ -121,18 +164,26 @@ async def executar_pipeline(referencia: str, contexto: str) -> VerificacaoRespon
         tribunal_inferido=ref.tribunal_inferido,
         existencia=existencia,
         conteudo=conteudo,
-        adequacao=Adequacao(**{k: v for k, v in adequacao_result.items() if k in Adequacao.model_fields}),
+        adequacao=Adequacao(
+            **{k: v for k, v in adequacao_result.items() if k in Adequacao.model_fields}
+        ),
         recomendacao=recomendacao,
         nivel_urgencia=adequacao_result.get("nivel_urgencia", "ATENCAO"),
         sugestao_substituicao=sugestao,
     )
 
-    registrar_auditoria({
-        "entrada": {"referencia": referencia, "contexto": contexto},
-        "parse": {"tipo": ref.tipo, "tribunal_inferido": ref.tribunal_inferido,
-                  "numero_limpo": ref.numero_limpo, "flags": ref.flags},
-        "evidencia": resultado_existencia,
-        "resultado": resposta.model_dump(),
-    })
+    registrar_auditoria(
+        {
+            "entrada": {"referencia": referencia, "contexto": contexto},
+            "parse": {
+                "tipo": ref.tipo,
+                "tribunal_inferido": ref.tribunal_inferido,
+                "numero_limpo": ref.numero_limpo,
+                "flags": ref.flags,
+            },
+            "evidencia": resultado_existencia,
+            "resultado": resposta.model_dump(),
+        }
+    )
 
     return resposta

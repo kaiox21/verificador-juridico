@@ -1,8 +1,6 @@
-try:
-    from dotenv import load_dotenv
-    load_dotenv()
-except Exception:
-    pass
+from dotenv import load_dotenv
+
+load_dotenv()
 
 from pathlib import Path
 

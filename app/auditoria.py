@@ -3,11 +3,16 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict
 
+
 AUDITORIA_DIR = Path(__file__).resolve().parent / "auditoria"
 AUDITORIA_FILE = AUDITORIA_DIR / "verificacoes.jsonl"
 
 
 def registrar_auditoria(registro: Dict[str, Any]) -> None:
+    """
+    Salva trilha de auditoria em JSONL.
+    Cada linha contem entrada, saida e evidencias da verificacao.
+    """
     AUDITORIA_DIR.mkdir(parents=True, exist_ok=True)
     payload = {
         "timestamp_utc": datetime.now(timezone.utc).isoformat(),

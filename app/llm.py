@@ -9,9 +9,14 @@ from typing import Dict, Any, Optional, List
 
 logger = logging.getLogger(__name__)
 
+# ---------------------------------------------------------------------------
+# Configuração das chaves - adicione quantas quiser no .env separadas por vírgula
+# Exemplo: GEMINI_API_KEYS=chave1,chave2,chave3
+# ---------------------------------------------------------------------------
 _raw_keys = os.getenv("GEMINI_API_KEYS", os.getenv("GEMINI_API_KEY", ""))
 GEMINI_KEYS: List[str] = [k.strip() for k in _raw_keys.split(",") if k.strip()]
 
+# Índice da chave atual (rotação round-robin)
 _key_index = 0
 _key_lock = asyncio.Lock()
 _key_cooldown_until: Dict[str, float] = {}
@@ -19,16 +24,21 @@ _key_rate_limit_hits: Dict[str, int] = {}
 
 GEMINI_URL = "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent"
 
+# ---------------------------------------------------------------------------
+# Groq - fallback gratuito quando todas as chaves Gemini atingem rate limit
+# Cadastro em: https://console.groq.com  (gratuito, sem cartão)
+# ---------------------------------------------------------------------------
 GROQ_API_KEY = os.getenv("GROQ_API_KEY", "")
 GROQ_URL = "https://api.groq.com/openai/v1/chat/completions"
 GROQ_MODEL = os.getenv("GROQ_MODEL", "llama-3.1-8b-instant")
 
 MAX_RETRIES = 3
-RETRY_BASE_DELAY = 4
-RATE_LIMIT_DEFAULT_COOLDOWN = 30
+RETRY_BASE_DELAY = 4  # segundos (dobra a cada tentativa: 4s, 8s, 16s)
+RATE_LIMIT_DEFAULT_COOLDOWN = 30  # fallback quando a API nao envia Retry-After
 
 
 class RateLimitError(Exception):
+    """Todas as chaves Gemini atingiram rate limit e Groq também falhou."""
     pass
 
 
@@ -54,6 +64,7 @@ def _marcar_cooldown(chave: str, retry_after: Optional[int] = None) -> int:
     _key_rate_limit_hits[chave] = hits
 
     if retry_after is None:
+        # Backoff exponencial por chave com jitter para evitar rajada sincronizada.
         base = RETRY_BASE_DELAY * (2 ** min(hits - 1, 4))
         cooldown = max(RATE_LIMIT_DEFAULT_COOLDOWN, base)
     else:
@@ -70,6 +81,7 @@ def _tempo_restante_cooldown(chave: str) -> float:
 
 
 async def _proxima_chave_disponivel() -> str:
+    """Retorna a próxima chave fora de cooldown."""
     global _key_index
     if not GEMINI_KEYS:
         return ""
@@ -86,6 +98,7 @@ async def _proxima_chave_disponivel() -> str:
 
 
 async def _chamar_gemini_com_chave(prompt: str, chave: str) -> str:
+    """Faz uma chamada ao Gemini com uma chave específica."""
     headers = {"Content-Type": "application/json"}
     params = {"key": chave}
     body = {
@@ -100,8 +113,9 @@ async def _chamar_gemini_com_chave(prompt: str, chave: str) -> str:
 
 
 async def _chamar_groq(prompt: str) -> str:
+    """Fallback: chama a API da Groq (LLaMA 3 gratuito)."""
     if not GROQ_API_KEY:
-        raise RateLimitError("Groq nao configurado (GROQ_API_KEY ausente).")
+        raise RateLimitError("Groq não configurado (GROQ_API_KEY ausente).")
 
     headers = {
         "Authorization": f"Bearer {GROQ_API_KEY}",
@@ -126,13 +140,18 @@ async def _chamar_groq(prompt: str) -> str:
 
 
 async def chamar_llm(prompt: str) -> str:
+    """
+    Tenta todas as chaves Gemini em rodízio.
+    Se todas retornarem 429, cai no fallback Groq.
+    """
     if not GEMINI_KEYS:
         logger.warning("Nenhuma chave Gemini configurada. Usando Groq.")
         try:
             return await _chamar_groq(prompt)
         except Exception as e:
             raise RateLimitError(
-                f"Nenhuma chave Gemini configurada e o fallback Groq falhou: {type(e).__name__}: {str(e)}"
+                "Nenhuma chave Gemini configurada e o fallback Groq falhou. "
+                f"Detalhe do fallback Groq: {type(e).__name__}: {str(e)}"
             ) from e
 
     max_tentativas = max(1, len(GEMINI_KEYS) * MAX_RETRIES)
@@ -147,35 +166,44 @@ async def chamar_llm(prompt: str) -> str:
             resultado = await _chamar_gemini_com_chave(prompt, chave)
             _key_rate_limit_hits[chave] = 0
             _key_cooldown_until[chave] = 0.0
+            logger.debug(f"Gemini respondeu com chave {_mascarar_chave(chave)}")
             return resultado
 
         except httpx.HTTPStatusError as e:
             if e.response.status_code == 429:
                 retry_after = _parse_retry_after(e.response.headers)
                 cooldown = _marcar_cooldown(chave, retry_after=retry_after)
-                logger.warning(f"Rate limit na chave {_mascarar_chave(chave)}. Cooldown de {cooldown}s.")
+                logger.warning(
+                    f"Rate limit na chave {_mascarar_chave(chave)}. "
+                    f"Cooldown de {cooldown}s antes de reutilizar."
+                )
                 continue
             elif e.response.status_code == 404:
-                logger.error("Modelo Gemini nao encontrado. Verifique GEMINI_URL.")
+                logger.error("Modelo Gemini não encontrado. Verifique GEMINI_URL.")
                 raise
             else:
                 logger.error(f"Erro HTTP Gemini: {e.response.status_code}")
                 raise
 
         except httpx.TimeoutException:
-            logger.warning(f"Timeout na chave {_mascarar_chave(chave)}. Tentando proxima...")
+            logger.warning(f"Timeout na chave {_mascarar_chave(chave)}. Tentando próxima...")
             await asyncio.sleep(1)
             continue
 
+    # Todas as chaves Gemini falharam -> tenta Groq
     logger.warning("Todas as chaves Gemini em rate limit. Usando fallback Groq.")
     try:
         return await _chamar_groq(prompt)
     except Exception as e:
         raise RateLimitError(
-            f"Todas as chaves Gemini atingiram rate limit e o fallback Groq falhou: {type(e).__name__}: {str(e)}"
+            "Todas as chaves Gemini atingiram rate limit e o fallback Groq também falhou. "
+            f"Detalhe do fallback Groq: {type(e).__name__}: {str(e)}"
         ) from e
 
 
+# ---------------------------------------------------------------------------
+# Passagem 1 - Inferir tese (sem mostrar o julgado ao modelo)
+# ---------------------------------------------------------------------------
 async def inferir_tese(referencia: str, contexto: str) -> dict:
     prompt = f"""Você é um especialista em direito processual brasileiro.
 
@@ -199,6 +227,9 @@ Responda APENAS com o JSON, sem texto adicional."""
         return {"tese_inferida": texto, "tribunal_adequado": "indeterminado"}
 
 
+# ---------------------------------------------------------------------------
+# Passagem 2 - Avaliar adequação (agora com os metadados do julgado real)
+# ---------------------------------------------------------------------------
 async def avaliar_adequacao(
     tese_inferida: str,
     assunto_real: str,
@@ -246,6 +277,9 @@ Responda APENAS com o JSON, sem texto adicional."""
         }
 
 
+# ---------------------------------------------------------------------------
+# Orquestrador das duas passagens
+# ---------------------------------------------------------------------------
 async def analisar_adequacao(
     referencia: str,
     contexto: str,
@@ -266,24 +300,29 @@ async def analisar_adequacao(
         }
 
     try:
+        # Passagem 1
         resultado_tese = await inferir_tese(referencia, contexto)
-        tese = resultado_tese.get("tese_inferida", "nao identificada")
+        tese = resultado_tese.get("tese_inferida", "não identificada")
 
-        await asyncio.sleep(1)
+        await asyncio.sleep(1)  # pausa para não estourar quota entre as passagens
 
+        # Passagem 2
         resultado_adequacao = await avaliar_adequacao(
             tese_inferida=tese,
-            assunto_real=assunto_real or "nao identificado",
-            dispositivo=dispositivo or "nao identificado",
-            grau=grau or "nao identificado",
+            assunto_real=assunto_real or "não identificado",
+            dispositivo=dispositivo or "não identificado",
+            grau=grau or "não identificado",
             flags=flags
         )
 
-        return {"tese_inferida_na_peticao": tese, **resultado_adequacao}
+        return {
+            "tese_inferida_na_peticao": tese,
+            **resultado_adequacao
+        }
 
     except RateLimitError as e:
         return {
-            "tese_inferida_na_peticao": "Analise indisponivel (rate limit)",
+            "tese_inferida_na_peticao": "Análise indisponível (rate limit)",
             "adequacao_tematica": "INDETERMINADO",
             "adequacao_dispositivo": "INDETERMINADO",
             "peso_precedencial": "INDETERMINADO",
@@ -293,9 +332,9 @@ async def analisar_adequacao(
             "erro": "rate_limit"
         }
     except Exception as e:
-        logger.exception("Falha inesperada na analise LLM")
+        logger.exception("Falha inesperada na análise LLM")
         return {
-            "tese_inferida_na_peticao": "Analise indisponivel (erro interno de LLM)",
+            "tese_inferida_na_peticao": "Análise indisponível (erro interno de LLM)",
             "adequacao_tematica": "INDETERMINADO",
             "adequacao_dispositivo": "INDETERMINADO",
             "peso_precedencial": "INDETERMINADO",
