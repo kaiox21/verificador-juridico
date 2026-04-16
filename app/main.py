@@ -31,14 +31,15 @@ app.add_middleware(
 
 
 @app.get("/")
-def root():
-    return {"status": "ok", "message": "Verificador de Referencias Juridicas - NIA/TCU"}
-
-
 @app.get("/ui")
 def ui():
     ui_path = Path(__file__).resolve().parent / "static" / "verificador.html"
     return FileResponse(ui_path)
+
+
+@app.get("/health")
+def health():
+    return {"status": "ok", "message": "Verificador de Referencias Juridicas - NIA/TCU"}
 
 
 @app.post("/verificar", response_model=VerificacaoResponse)
