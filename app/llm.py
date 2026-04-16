@@ -1,14 +1,25 @@
 import os
 import httpx
 import json
+import asyncio
+import logging
 from typing import Dict, Any, Optional
 
+logger = logging.getLogger(__name__)
+
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "")
-GEMINI_URL = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent"
+GEMINI_URL = "https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent"
+
+MAX_RETRIES = 3
+RETRY_BASE_DELAY = 5  # dobra a cada tentativa: 5s, 10s, 20s
+
+
+class RateLimitError(Exception):
+    """Erro específico para rate limit da API."""
+    pass
 
 
 async def chamar_gemini(prompt: str) -> str:
-    """Chama a API do Gemini e retorna o texto da resposta."""
     headers = {"Content-Type": "application/json"}
     params = {"key": GEMINI_API_KEY}
     body = {
@@ -16,16 +27,41 @@ async def chamar_gemini(prompt: str) -> str:
         "generationConfig": {"temperature": 0.1, "maxOutputTokens": 1000}
     }
 
-    async with httpx.AsyncClient(timeout=30.0) as client:
-        resp = await client.post(GEMINI_URL, json=body, params=params, headers=headers)
-        resp.raise_for_status()
-        data = resp.json()
+    for tentativa in range(1, MAX_RETRIES + 1):
+        try:
+            async with httpx.AsyncClient(timeout=30.0) as client:
+                resp = await client.post(GEMINI_URL, json=body, params=params, headers=headers)
 
-    return data["candidates"][0]["content"]["parts"][0]["text"]
+                if resp.status_code == 429:
+                    if tentativa < MAX_RETRIES:
+                        delay = RETRY_BASE_DELAY * (2 ** (tentativa - 1))
+                        logger.warning(f"Rate limit (tentativa {tentativa}/{MAX_RETRIES}). Aguardando {delay}s...")
+                        await asyncio.sleep(delay)
+                        continue
+                    raise RateLimitError(
+                        "A API do Gemini está com rate limit. Aguarde alguns minutos e tente novamente."
+                    )
+
+                resp.raise_for_status()
+                data = resp.json()
+                return data["candidates"][0]["content"]["parts"][0]["text"]
+
+        except RateLimitError:
+            raise
+        except httpx.HTTPStatusError as e:
+            logger.error(f"Erro HTTP da API Gemini: {e.response.status_code}")
+            raise
+        except httpx.TimeoutException:
+            if tentativa < MAX_RETRIES:
+                logger.warning(f"Timeout na tentativa {tentativa}. Tentando novamente...")
+                await asyncio.sleep(2)
+                continue
+            raise
+
+    raise RuntimeError("Falha inesperada após todas as tentativas.")
 
 
-async def inferir_tese(referencia: str, contexto: str) -> str:
-    """Passagem 1: infere a tese jurídica sem mostrar o julgado."""
+async def inferir_tese(referencia: str, contexto: str) -> dict:
     prompt = f"""Você é um especialista em direito processual brasileiro.
 
 Analise o trecho de petição abaixo, onde a referência "{referencia}" é citada:
@@ -41,7 +77,6 @@ Responda em JSON com exatamente este formato:
 Responda APENAS com o JSON, sem texto adicional."""
 
     texto = await chamar_gemini(prompt)
-    # Limpa possível markdown
     texto = texto.strip().replace("```json", "").replace("```", "").strip()
     try:
         return json.loads(texto)
@@ -56,7 +91,6 @@ async def avaliar_adequacao(
     grau: str,
     flags: list
 ) -> Dict[str, Any]:
-    """Passagem 2: compara tese inferida com o julgado real."""
     flags_str = ", ".join(flags) if flags else "nenhuma"
 
     prompt = f"""Você é um especialista em direito processual brasileiro.
@@ -105,7 +139,6 @@ async def analisar_adequacao(
     grau: Optional[str],
     flags: list
 ) -> Dict[str, Any]:
-    """Executa as duas passagens sequenciais de análise com LLM."""
     if not GEMINI_API_KEY:
         return {
             "tese_inferida_na_peticao": "API Gemini não configurada",
@@ -117,20 +150,33 @@ async def analisar_adequacao(
             "nivel_urgencia": "ATENCAO"
         }
 
-    # Passagem 1
-    resultado_tese = await inferir_tese(referencia, contexto)
-    tese = resultado_tese.get("tese_inferida", "não identificada")
+    try:
+        resultado_tese = await inferir_tese(referencia, contexto)
+        tese = resultado_tese.get("tese_inferida", "não identificada")
 
-    # Passagem 2
-    resultado_adequacao = await avaliar_adequacao(
-        tese_inferida=tese,
-        assunto_real=assunto_real or "não identificado",
-        dispositivo=dispositivo or "não identificado",
-        grau=grau or "não identificado",
-        flags=flags
-    )
+        await asyncio.sleep(1)  # pausa entre chamadas para evitar rate limit
 
-    return {
-        "tese_inferida_na_peticao": tese,
-        **resultado_adequacao
-    }
+        resultado_adequacao = await avaliar_adequacao(
+            tese_inferida=tese,
+            assunto_real=assunto_real or "não identificado",
+            dispositivo=dispositivo or "não identificado",
+            grau=grau or "não identificado",
+            flags=flags
+        )
+
+        return {
+            "tese_inferida_na_peticao": tese,
+            **resultado_adequacao
+        }
+
+    except RateLimitError as e:
+        return {
+            "tese_inferida_na_peticao": "Análise indisponível (rate limit)",
+            "adequacao_tematica": "INDETERMINADO",
+            "adequacao_dispositivo": "INDETERMINADO",
+            "peso_precedencial": "INDETERMINADO",
+            "justificativa": str(e),
+            "recomendacao": "REVISAR",
+            "nivel_urgencia": "ATENCAO",
+            "erro": "rate_limit"
+        }
