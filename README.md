@@ -1,19 +1,66 @@
-# Verificador de Referências Jurídicas
+﻿# Verificador de Referências Jurídicas
 
-API REST que verifica automaticamente referências jurídicas geradas por IA em peças processuais, detectando alucinações, divergências e inadequações de contexto.
+API REST para validar referências jurídicas citadas em peças processuais geradas (ou apoiadas) por IA, reduzindo risco de alucinações e citações inadequadas.
 
-## Problema
+## Objetivo do desafio
 
-Sistemas de IA generativa citam processos com números plausíveis mas inexistentes, com dados trocados (UF errada, classe errada) ou com conteúdo incompatível com o argumento que sustentam. Este serviço automatiza a verificação em quatro camadas independentes.
+Verificar uma referência jurídica e seu contexto em três dimensões independentes:
+- existência
+- conteúdo
+- adequação ao argumento da petição
+
+Com resposta estruturada e recomendação final (`MANTER`, `CORRIGIR`, `REVISAR`, `SUBSTITUIR`, `REMOVER`).
 
 ## Arquitetura
 
-```
-Camada 0 — Parser local (regex + dígito verificador CNJ)
-Camada 1 — Verificação de existência (Datajud / STJ SCON)
-Camada 2 — Extração de metadados (assunto, dispositivo, grau, TPU)
-Camada 3 — Adequação contextual (Gemini, duas passagens sequenciais)
-```
+- **Camada 0 — Parser local**
+  - Regex para CNJ e tribunais superiores
+  - Validação de formato
+  - Validação de dígito verificador CNJ (módulo 97-10)
+  - Flags locais (`FORMATO_INVALIDO`, `ANO_FUTURO`, etc.)
+
+- **Camada 1 — Verificação de existência**
+  - DataJud (CNJ) para processos CNJ
+  - STJ SCON para referências do STJ
+  - Cobertura ampliada para TRFs, STF e TST via estratégia de consulta disponível
+
+- **Camada 2 — Extração de metadados**
+  - assunto real
+  - dispositivo
+  - grau
+  - flags de movimentos TPU (`EXTINTO_SEM_MERITO`, `TEM_ACORDAO`, `TRANSITADO`)
+
+- **Camada 3 — Adequação contextual (LLM)**
+  - inferência da tese da petição
+  - comparação tese x julgado real
+  - classificação de adequação temática, utilidade do dispositivo e peso precedencial
+
+## Funcionalidades implementadas
+
+### Nível básico
+- Parser CNJ + superior
+- Verificação de existência (DataJud / SCON)
+- Saída estruturada nas três dimensões
+- API REST testável
+
+### Nível intermediário
+- Validação do dígito verificador CNJ
+- Flags automáticas por metadados
+- Camada de adequação com LLM
+- Cache básico de existência (TTL)
+
+### Nível avançado
+- Processamento em lote (`POST /verificar-lote`)
+- Sugestão de substituição quando referência está inadequada
+- Cobertura ampliada de tribunais (TRFs, STF, TST)
+- Trilha de auditoria com evidências (`app/auditoria/verificacoes.jsonl`)
+
+## Endpoints
+
+- `POST /verificar`
+- `POST /verificar-lote`
+- `GET /ui`
+- `GET /docs`
 
 ## Instalação local
 
@@ -22,23 +69,53 @@ git clone https://github.com/seu-usuario/verificador-juridico
 cd verificador-juridico
 
 python -m venv venv
-source venv/bin/activate  # Windows: venv\Scripts\activate
-
-pip install -r requirements.txt
-
-cp .env.example .env
-# Edite .env e adicione sua GEMINI_API_KEY
 ```
 
-## Rodando
+Ativação do ambiente virtual:
+
+```bash
+# Linux/macOS
+source venv/bin/activate
+
+# Windows PowerShell
+.\venv\Scripts\Activate.ps1
+```
+
+Instale dependências:
+
+```bash
+pip install -r requirements.txt
+```
+
+Crie o `.env`:
+
+```bash
+cp .env.example .env
+# No Windows (sem cp): copy .env.example .env
+```
+
+## Variáveis de ambiente
+
+| Variável | Obrigatória | Descrição |
+|---|---|---|
+| `DATAJUD_API_KEY` | Sim | Chave de acesso à API pública do DataJud |
+| `GEMINI_API_KEYS` | Não | Lista de chaves Gemini separadas por vírgula (rotação) |
+| `GROQ_API_KEY` | Não | Chave Groq para fallback da camada LLM |
+| `CACHE_TTL_SECONDS` | Não | Tempo de vida do cache de existência (padrão: 600) |
+
+## Execução
 
 ```bash
 uvicorn app.main:app --reload
 ```
 
-Acesse: http://localhost:8000/docs
+Acesse:
+- [http://localhost:8000/docs](http://localhost:8000/docs)
+- [http://localhost:8000/ui](http://localhost:8000/ui)
 
-## Uso
+## Exemplo de uso
+
+### Requisição unitária
 
 ```bash
 curl -X POST http://localhost:8000/verificar \
@@ -49,75 +126,110 @@ curl -X POST http://localhost:8000/verificar \
   }'
 ```
 
-## Resposta
+### Requisição em lote
+
+```bash
+curl -X POST http://localhost:8000/verificar-lote \
+  -H "Content-Type: application/json" \
+  -d '{
+    "referencias": [
+      "REsp 1.810.170/RS",
+      "0815641-45.2025.8.10.0040"
+    ],
+    "contexto": "Trecho da petição em que as referências são utilizadas."
+  }'
+```
+
+## Estrutura de resposta (resumo)
 
 ```json
 {
-  "referencia_normalizada": "RESP 1810170/RS",
-  "tribunal_inferido": "STJ",
-  "existencia": {
-    "status": "EXISTE_COM_DIVERGENCIA",
-    "numero_real": "REsp 1810170/SP",
-    "fonte": "STJ SCON",
-    "url_fonte": "https://scon.stj.jus.br/...",
-    "flags": ["UF_DIVERGENTE: citado RS, real SP"]
-  },
-  "conteudo": {
-    "assunto_real": "Previdência privada complementar",
-    "dispositivo": "NAO_CONHECIDO",
-    "grau": "superior",
-    "flags": []
-  },
+  "referencia_normalizada": "...",
+  "tribunal_inferido": "...",
+  "existencia": { "status": "...", "numero_real": "...", "flags": [] },
+  "conteudo": { "assunto_real": "...", "dispositivo": "...", "grau": "...", "flags": [] },
   "adequacao": {
-    "tese_inferida_na_peticao": "Ilegalidade da cobrança de taxa de conveniência ao consumidor",
-    "adequacao_tematica": "INADEQUADO",
-    "adequacao_dispositivo": "INUTIL",
-    "peso_precedencial": "NULO",
-    "justificativa": "O julgado trata de previdência privada e foi encerrado sem análise de mérito."
+    "tese_inferida_na_peticao": "...",
+    "adequacao_tematica": "...",
+    "adequacao_dispositivo": "...",
+    "peso_precedencial": "...",
+    "justificativa": "..."
   },
-  "recomendacao": "REMOVER",
-  "nivel_urgencia": "CRITICO"
+  "recomendacao": "...",
+  "nivel_urgencia": "...",
+  "sugestao_substituicao": { "tema_inferido": "...", "sugestoes": [] }
 }
 ```
 
-## Variáveis de ambiente
+## Casos de teste sugeridos (enunciado)
 
-| Variável | Descrição |
-|---|---|
-| `GEMINI_API_KEY` | Chave da API do Google Gemini (gratuita em aistudio.google.com) |
+### Caso 1
+
+```json
+{
+  "referencia": "REsp 1.810.170/RS",
+  "contexto": "Conforme entendimento pacificado no STJ, a cobrança de taxa de conveniência é abusiva ao consumidor, como decidido no REsp 1.810.170/RS."
+}
+```
+
+Esperado: existe, mas com divergências relevantes (UF/tema/dispositivo), exigindo revisão ou correção.
+
+### Caso 2
+
+```json
+{
+  "referencia": "0815641-45.2025.8.10.0040",
+  "contexto": "No âmbito deste Egrégio Tribunal de Justiça do Estado do Maranhão, cumpre citar o precedente firmado nos autos do processo nº 0815641-45.2025.8.10.0040."
+}
+```
+
+Esperado: processo localizado, porém de 1º grau e extinto sem resolução de mérito, com peso precedencial baixo/nulo para a tese.
+
+## Auditoria
+
+Cada verificação salva trilha em:
+
+- `app/auditoria/verificacoes.jsonl`
+
+Conteúdo salvo por linha:
+- entrada
+- parse
+- evidência de fonte
+- resultado final
 
 ## Deploy (Render)
 
 1. Faça push do repositório no GitHub
-2. Acesse render.com → New Web Service
-3. Conecte o repositório
-4. Start command: `uvicorn app.main:app --host 0.0.0.0 --port $PORT`
-5. Adicione a variável de ambiente `GEMINI_API_KEY`
+2. Crie um **New Web Service** no Render
+3. Configure comando de start:
 
-## Casos de teste
-
-**Caso 1 — REsp com UF errada e assunto incompatível:**
-```json
-{
-  "referencia": "REsp 1.810.170/RS",
-  "contexto": "...taxa de conveniência é abusiva ao consumidor, como decidido no REsp 1.810.170/RS..."
-}
+```bash
+uvicorn app.main:app --host 0.0.0.0 --port $PORT
 ```
-Esperado: UF divergente (RS→SP), assunto incompatível, dispositivo inútil → REMOVER / CRITICO
 
-**Caso 2 — Processo de 1º grau citado como precedente de tribunal:**
-```json
-{
-  "referencia": "0815641-45.2025.8.10.0040",
-  "contexto": "...neste Egrégio Tribunal de Justiça do Maranhão, cumpre citar o precedente firmado nos autos do processo nº 0815641-45.2025.8.10.0040..."
-}
-```
-Esperado: processo de 1º grau, extinto por desistência → não é precedente → REMOVER / CRITICO
+4. Configure variáveis de ambiente (`DATAJUD_API_KEY`, `GEMINI_API_KEYS` e/ou `GROQ_API_KEY`)
 
-## Tecnologias
+## Stack
 
-- **FastAPI** — framework da API
-- **Datajud (CNJ)** — verificação de processos CNJ
-- **STJ SCON** — verificação de acórdãos do STJ
-- **Google Gemini** — análise de adequação contextual
-- **httpx** — requisições HTTP assíncronas
+- FastAPI
+- httpx
+- DataJud (CNJ)
+- STJ SCON
+- Gemini API / Groq API
+
+## Limitações atuais
+
+- Dependência de disponibilidade das APIs externas
+- Variação de qualidade na camada LLM conforme contexto enviado
+- Cobertura de metadados pode variar por tribunal/fonte
+
+## Próximos passos
+
+- Testes automatizados (unitários e integração)
+- Healthcheck de integrações externas
+- Ranking de precedentes sugeridos por aderência temática
+- Melhorias contínuas de extração de conteúdo
+
+## Licença
+
+Defina a licença do projeto (ex.: MIT).
