@@ -82,8 +82,8 @@ copy .env.example .env
 | Variável | Obrigatória | Descrição |
 |---|---|---|
 | `DATAJUD_API_KEY` | Sim | Chave da API pública do DataJud |
-| `GEMINI_API_KEYS` | Não | Chaves Gemini separadas por vírgula |
-| `GROQ_API_KEY` | Não | Chave Groq para fallback LLM |
+| `GEMINI_API_KEYS` | Sim | Chaves Gemini separadas por vírgula |
+| `GROQ_API_KEY` | Sim | Chave Groq para fallback LLM |
 | `CACHE_TTL_SECONDS` | Não | TTL do cache (padrão: 600) |
 
 ## Execução
