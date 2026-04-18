@@ -187,8 +187,8 @@ Com:
 3. Mantenha as configurações padrão (há `vercel.json` no projeto).
 4. Cadastre variáveis de ambiente:
    - `DATAJUD_API_KEY`
-   - `GEMINI_API_KEYS` (opcional)
-   - `GROQ_API_KEY` (opcional)
+   - `GEMINI_API_KEYS` 
+   - `GROQ_API_KEY` 
    - `CACHE_TTL_SECONDS` (opcional)
 5. Faça o deploy.
 
