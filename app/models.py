@@ -29,11 +29,11 @@ class Conteudo(BaseModel):
 
 
 class Adequacao(BaseModel):
-    tese_inferida_na_peticao: Optional[str] = None
-    adequacao_tematica: Optional[str] = None  # ADEQUADO, PARCIALMENTE_ADEQUADO, INADEQUADO
-    adequacao_dispositivo: Optional[str] = None  # UTIL, PARCIALMENTE_UTIL, INUTIL
-    peso_precedencial: Optional[str] = None  # ALTO, MEDIO, BAIXO, NULO
-    justificativa: Optional[str] = None
+    tese_inferida_na_peticao: Optional[str] = Field(default=None)
+    adequacao_tematica: Optional[str] = Field(default=None)  # ADEQUADO, PARCIALMENTE_ADEQUADO, INADEQUADO
+    adequacao_dispositivo: Optional[str] = Field(default=None)  # UTIL, PARCIALMENTE_UTIL, INUTIL
+    peso_precedencial: Optional[str] = Field(default=None)  # ALTO, MEDIO, BAIXO, NULO
+    justificativa: Optional[str] = Field(default=None)
 
 
 class SugestaoItem(BaseModel):

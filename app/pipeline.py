@@ -224,8 +224,6 @@ async def executar_pipeline(referencia: str, contexto: str) -> VerificacaoRespon
     dispositivo = resultado_existencia.get("dispositivo") or "NAO_IDENTIFICADO"
     if "EXTINTO_SEM_MERITO" in flags_conteudo:
         dispositivo = "EXTINTO_SEM_MERITO"
-        if "EXTINTO_SEM_MERITO" not in flags_conteudo:
-            flags_conteudo.append("EXTINTO_SEM_MERITO")
     elif "TEM_ACORDAO" in flags_conteudo:
         dispositivo = "COM_ACORDAO"
 

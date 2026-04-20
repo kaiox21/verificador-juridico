@@ -66,6 +66,15 @@ def validar_digito_cnj(seq: str, digito: str, ano: str, j: str, tr: str, vara: s
 
 def parse_referencia(referencia: str) -> ReferenciaParseada:
     """Camada 0: parseia e valida localmente a referencia juridica."""
+    if not isinstance(referencia, str) or not referencia.strip():
+        return ReferenciaParseada(
+            tipo="DESCONHECIDO",
+            referencia_original=str(referencia),
+            numero_limpo=str(referencia),
+            tribunal_inferido="DESCONHECIDO",
+            flags=["FORMATO_INVALIDO"],
+        )
+
     flags = []
 
     # Tenta padrao CNJ: NNNNNNN-DD.AAAA.J.TR.OOOO

@@ -26,7 +26,6 @@ GEMINI_URL = "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0
 
 # ---------------------------------------------------------------------------
 # Groq - fallback gratuito quando todas as chaves Gemini atingem rate limit
-# Cadastro em: https://console.groq.com  (gratuito, sem cartão)
 # ---------------------------------------------------------------------------
 GROQ_API_KEY = os.getenv("GROQ_API_KEY", "")
 GROQ_URL = "https://api.groq.com/openai/v1/chat/completions"
@@ -40,6 +39,35 @@ RATE_LIMIT_DEFAULT_COOLDOWN = 30  # fallback quando a API nao envia Retry-After
 class RateLimitError(Exception):
     """Todas as chaves Gemini atingiram rate limit e Groq também falhou."""
     pass
+
+
+def _extrair_texto_gemini(data: Dict[str, Any]) -> str:
+    candidates = data.get("candidates")
+    if not isinstance(candidates, list) or not candidates:
+        raise ValueError("Resposta Gemini sem candidates.")
+    content = candidates[0].get("content") if isinstance(candidates[0], dict) else None
+    if not isinstance(content, dict):
+        raise ValueError("Resposta Gemini sem content.")
+    parts = content.get("parts")
+    if not isinstance(parts, list) or not parts:
+        raise ValueError("Resposta Gemini sem parts.")
+    first = parts[0]
+    if not isinstance(first, dict) or "text" not in first:
+        raise ValueError("Resposta Gemini sem text.")
+    return str(first["text"])
+
+
+def _extrair_texto_groq(data: Dict[str, Any]) -> str:
+    choices = data.get("choices")
+    if not isinstance(choices, list) or not choices:
+        raise ValueError("Resposta Groq sem choices.")
+    first = choices[0]
+    if not isinstance(first, dict):
+        raise ValueError("Resposta Groq invalida em choices[0].")
+    message = first.get("message")
+    if not isinstance(message, dict) or "content" not in message:
+        raise ValueError("Resposta Groq sem message.content.")
+    return str(message["content"])
 
 
 def _parse_retry_after(headers: httpx.Headers) -> Optional[int]:
@@ -64,7 +92,6 @@ def _marcar_cooldown(chave: str, retry_after: Optional[int] = None) -> int:
     _key_rate_limit_hits[chave] = hits
 
     if retry_after is None:
-        # Backoff exponencial por chave com jitter para evitar rajada sincronizada.
         base = RETRY_BASE_DELAY * (2 ** min(hits - 1, 4))
         cooldown = max(RATE_LIMIT_DEFAULT_COOLDOWN, base)
     else:
@@ -109,7 +136,7 @@ async def _chamar_gemini_com_chave(prompt: str, chave: str) -> str:
         resp = await client.post(GEMINI_URL, json=body, params=params, headers=headers)
         resp.raise_for_status()
         data = resp.json()
-        return data["candidates"][0]["content"]["parts"][0]["text"]
+        return _extrair_texto_gemini(data)
 
 
 async def _chamar_groq(prompt: str) -> str:
@@ -136,7 +163,7 @@ async def _chamar_groq(prompt: str) -> str:
             logger.error(f"Falha Groq HTTP {resp.status_code}: {detalhe}")
             raise
         data = resp.json()
-        return data["choices"][0]["message"]["content"]
+        return _extrair_texto_groq(data)
 
 
 async def chamar_llm(prompt: str) -> str:
@@ -164,15 +191,17 @@ async def chamar_llm(prompt: str) -> str:
 
         try:
             resultado = await _chamar_gemini_com_chave(prompt, chave)
-            _key_rate_limit_hits[chave] = 0
-            _key_cooldown_until[chave] = 0.0
+            async with _key_lock:
+                _key_rate_limit_hits[chave] = 0
+                _key_cooldown_until[chave] = 0.0
             logger.debug(f"Gemini respondeu com chave {_mascarar_chave(chave)}")
             return resultado
 
         except httpx.HTTPStatusError as e:
             if e.response.status_code == 429:
                 retry_after = _parse_retry_after(e.response.headers)
-                cooldown = _marcar_cooldown(chave, retry_after=retry_after)
+                async with _key_lock:
+                    cooldown = _marcar_cooldown(chave, retry_after=retry_after)
                 logger.warning(
                     f"Rate limit na chave {_mascarar_chave(chave)}. "
                     f"Cooldown de {cooldown}s antes de reutilizar."
@@ -202,7 +231,7 @@ async def chamar_llm(prompt: str) -> str:
 
 
 # ---------------------------------------------------------------------------
-# Passagem 1 - Inferir tese (sem mostrar o julgado ao modelo)
+# Passagem 1 - Inferir tese 
 # ---------------------------------------------------------------------------
 async def inferir_tese(referencia: str, contexto: str) -> dict:
     prompt = f"""Você é um especialista em direito processual brasileiro.
@@ -228,7 +257,7 @@ Responda APENAS com o JSON, sem texto adicional."""
 
 
 # ---------------------------------------------------------------------------
-# Passagem 2 - Avaliar adequação (agora com os metadados do julgado real)
+# Passagem 2 - Avaliar adequação 
 # ---------------------------------------------------------------------------
 async def avaliar_adequacao(
     tese_inferida: str,

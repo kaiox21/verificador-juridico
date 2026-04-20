@@ -1,11 +1,13 @@
 import json
+import logging
 import os
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict
 
+logger = logging.getLogger(__name__)
 
-# Em serverless (ex.: Vercel), somente /tmp é gravável.
+# Em serverless (ex.: Vercel), somente /tmp e gravavel.
 if os.getenv("VERCEL"):
     AUDITORIA_DIR = Path("/tmp/verificador_auditoria")
 else:
@@ -28,5 +30,6 @@ def registrar_auditoria(registro: Dict[str, Any]) -> None:
         with AUDITORIA_FILE.open("a", encoding="utf-8") as f:
             f.write(json.dumps(payload, ensure_ascii=False) + "\n")
     except Exception:
-        # Auditoria não pode derrubar a API.
+        # Auditoria nao pode derrubar a API, mas o erro deve ficar visivel em log.
+        logger.exception("Falha ao gravar trilha de auditoria.")
         return

@@ -12,7 +12,7 @@ CACHE_TTL_SECONDS = int(os.getenv("CACHE_TTL_SECONDS", "600"))
 
 _EXISTENCIA_CACHE: Dict[str, Dict[str, Any]] = {}
 
-# CÃƒÂ³digos TPU relevantes
+# Codigos TPU relevantes
 TPU_FLAGS = {
     22: "EXTINTO_SEM_MERITO",
     237: "EXTINTO_SEM_MERITO",
@@ -20,7 +20,7 @@ TPU_FLAGS = {
     904: "TRANSITADO",
 }
 
-# Mapa tribunal Ã¢â€ â€™ ÃƒÂ­ndice Datajud
+# Mapa tribunal -> indice DataJud
 TRIBUNAL_PARA_INDICE = {
     "TJAC": "tjac", "TJAL": "tjal", "TJAP": "tjap", "TJAM": "tjam",
     "TJBA": "tjba", "TJCE": "tjce", "TJDF": "tjdft", "TJDFT": "tjdft", "TJGO": "tjgo",
@@ -141,11 +141,21 @@ def _consultas_numero_processo(numero_limpo: str) -> List[Dict[str, Any]]:
 async def verificar_datajud(ref: ReferenciaParseada) -> Dict[str, Any]:
     """Verifica processo CNJ no Datajud."""
     if not DATAJUD_API_KEY:
-        return {"encontrado": False, "erro": "DATAJUD_API_KEY nao configurada no ambiente."}
+        return {
+            "encontrado": False,
+            "erro": "DATAJUD_API_KEY nao configurada no ambiente.",
+            "fonte": "DataJud",
+            "flags": ["FONTE_NAO_CONFIGURADA"],
+        }
 
     indice = TRIBUNAL_PARA_INDICE.get(ref.tribunal_inferido)
     if not indice:
-        return {"encontrado": False, "erro": f"Tribunal {ref.tribunal_inferido} nÃƒÂ£o coberto"}
+        return {
+            "encontrado": False,
+            "erro": f"Tribunal {ref.tribunal_inferido} nao coberto no DataJud",
+            "fonte": "DataJud",
+            "flags": ["TRIBUNAL_NAO_COBERTO"],
+        }
 
     url = f"{DATAJUD_BASE}/api_publica_{indice}/_search"
     auth_value = DATAJUD_API_KEY.strip()
@@ -215,10 +225,10 @@ async def verificar_datajud(ref: ReferenciaParseada) -> Dict[str, Any]:
 
 
 async def verificar_stj_scon(ref: ReferenciaParseada) -> Dict[str, Any]:
-    """Verifica acÃ³rdÃ£o no SCON do STJ."""
+    """Verifica acordao no SCON do STJ."""
     numero = ref.numero_tribunal
     if not numero:
-        return {"encontrado": False, "erro": "NÃºmero nÃ£o extraÃ­do"}
+        return {"encontrado": False, "erro": "Numero nao extraido"}
 
     url = "https://scon.stj.jus.br/SCON/pesquisar.jsp"
     params = {
@@ -236,11 +246,11 @@ async def verificar_stj_scon(ref: ReferenciaParseada) -> Dict[str, Any]:
         if "Nenhum documento" in html or "0 documento" in html:
             return {"encontrado": False}
 
-        # Texto plano para inferÃªncias mais robustas (layout do SCON varia bastante).
+        # Texto plano para inferencias mais robustas (layout do SCON varia bastante).
         texto_plano = re.sub(r"<[^>]+>", " ", html)
         texto_plano = re.sub(r"\s+", " ", texto_plano).strip()
 
-        # Extrair UF real (evita depender de uma Ãºnica marca HTML).
+        # Extrair UF real (evita depender de uma unica marca HTML).
         uf_match = re.search(r"\bRESP?\s*[\d\.,]+\s*/\s*([A-Z]{2})\b", texto_plano, re.IGNORECASE)
         if not uf_match:
             uf_match = re.search(rf"\b{re.escape(numero)}\s*/\s*([A-Z]{{2}})\b", texto_plano, re.IGNORECASE)
@@ -263,12 +273,12 @@ async def verificar_stj_scon(ref: ReferenciaParseada) -> Dict[str, Any]:
         )
         if assunto_match:
             assunto = assunto_match.group(1).strip(" .;-")
-        elif ementa and re.search(r"previd[eÃª]ncia\s+privada", ementa, re.IGNORECASE):
+        elif ementa and re.search(r"previd[eê]ncia\s+privada", ementa, re.IGNORECASE):
             assunto = "Previdencia privada"
 
         # Extrai dispositivo/resultado por frases-chave.
         dispositivo = None
-        if re.search(r"n[aÃ£]o\s+conhec", texto_plano, re.IGNORECASE):
+        if re.search(r"n[aã]o\s+conhec", texto_plano, re.IGNORECASE):
             dispositivo = "NAO_CONHECIDO"
             if "NAO_CONHECIDO" not in flags:
                 flags.append("NAO_CONHECIDO")
@@ -310,7 +320,7 @@ async def verificar_superior_datajud(ref: ReferenciaParseada) -> Dict[str, Any]:
     if not indice:
         return {"encontrado": False, "erro": f"Tribunal {ref.tribunal_inferido} nao coberto"}
 
-    # DataJud publico nem sempre expõe endpoint direto para superiores (ex.: STF/TST).
+    # DataJud publico nem sempre expoe endpoint direto para superiores (ex.: STF/TST).
     # Nesses casos, devolvemos "nao encontrado" sem erro tecnico para nao poluir a analise.
     url = f"{DATAJUD_BASE}/api_publica_{indice}/_search"
     auth_value = DATAJUD_API_KEY.strip()

@@ -523,17 +523,37 @@
     const FLAG_KEYS = new Set(["flags"]);
     const URL_KEYS  = new Set(["url_fonte"]);
 
+    function escapeHtml(value) {
+      return String(value)
+        .replaceAll("&", "&amp;")
+        .replaceAll("<", "&lt;")
+        .replaceAll(">", "&gt;")
+        .replaceAll('"', "&quot;")
+        .replaceAll("'", "&#39;");
+    }
+
+    function isSafeHttpUrl(value) {
+      try {
+        const u = new URL(String(value));
+        return u.protocol === "http:" || u.protocol === "https:";
+      } catch (_) {
+        return false;
+      }
+    }
+
     function renderValue(key, value) {
       if (value === null || value === undefined) return "<span style='color:#aaa'>-</span>";
 
       if (FLAG_KEYS.has(key)) {
         if (!Array.isArray(value) || value.length === 0)
           return "<span style='color:#aaa'>nenhuma</span>";
-        return `<div class="flag-list">${value.map(f => `<span class="flag-tag">${f}</span>`).join("")}</div>`;
+        return `<div class="flag-list">${value.map(f => `<span class="flag-tag">${escapeHtml(f)}</span>`).join("")}</div>`;
       }
 
       if (URL_KEYS.has(key) && value) {
-        return `<a href="${value}" target="_blank" rel="noopener" style="color:var(--brand-2);word-break:break-all">${value}</a>`;
+        if (!isSafeHttpUrl(value)) return "<span style='color:#aaa'>url invalida</span>";
+        const safeValue = escapeHtml(value);
+        return `<a href="${safeValue}" target="_blank" rel="noopener noreferrer" style="color:var(--brand-2);word-break:break-all">${safeValue}</a>`;
       }
 
       if (PILL_KEYS.has(key)) return pill(String(value));
@@ -541,7 +561,7 @@
       if (Array.isArray(value)) return value.length ? value.join(" | ") : "-";
       if (typeof value === "object") return JSON.stringify(value);
       if (ENUM_KEYS.has(key) && typeof value === "string") return humanize(value);
-      return String(value);
+      return escapeHtml(value);
     }
 
     function renderKV(container, obj) {
@@ -614,8 +634,8 @@
       btnSubmit.textContent = "Verificando...";
 
       const payload = {
-        referencia: inputRef.value.trim(),
-        contexto:   inputCtx.value.trim()
+        referencia: inputRef.value.trim().slice(0, 300),
+        contexto:   inputCtx.value.trim().slice(0, 12000)
       };
 
       try {
