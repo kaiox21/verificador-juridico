@@ -1,103 +1,134 @@
-﻿# Verificador de ReferÃªncias JurÃ­dicas
+﻿# Verificador de Referencias Juridicas
 
-API REST para validar referÃªncias jurÃ­dicas citadas em peÃ§as processuais geradas (ou apoiadas) por IA, reduzindo risco de alucinaÃ§Ãµes e citaÃ§Ãµes inadequadas.
+API REST em FastAPI para validar referencias juridicas citadas em textos processuais, com foco em reduzir risco de alucinacoes de IA.
 
-## Status da entrega
+## O que o projeto faz hoje
 
-Este projeto estÃ¡ alinhado com o **nÃ­vel avanÃ§ado** do mini desafio:
-
-- Parser CNJ + tribunais superiores
-- VerificaÃ§Ã£o de existÃªncia (DataJud / STJ SCON)
-- SaÃ­da estruturada em 3 dimensÃµes (`existencia`, `conteudo`, `adequacao`)
-- ValidaÃ§Ã£o de dÃ­gito CNJ (mÃ³dulo 97-10)
-- Flags automÃ¡ticas por metadados (ex.: `EXTINTO_SEM_MERITO`)
-- Camada de adequaÃ§Ã£o com LLM (duas passagens)
-- Cache bÃ¡sico de existÃªncia (TTL)
-- Processamento em lote (`POST /verificar-lote`)
-- SugestÃ£o de substituiÃ§Ã£o quando a referÃªncia Ã© inadequada
-- Cobertura ampliada (TRFs, STF, TST)
-- Trilha de auditoria em `app/auditoria/verificacoes.jsonl`
+- Parse local de referencia CNJ e de tribunais superiores (ex.: `REsp`, `RE`, `ADI`, `RR`)
+- Validacao de formato e digito verificador CNJ (modulo 97-10)
+- Verificacao de existencia em fonte externa (DataJud / STJ SCON)
+- Analise de adequacao contextual com LLM (duas passagens)
+- Guardrails de consistencia para recomendacao e urgencia
+- Sugestao automatica de substituicao quando a citacao e inadequada
+- Processamento unitario e em lote
+- Trilha de auditoria em JSONL
 
 ## Arquitetura
 
-- **Camada 0 â€” Parser local**
-  - Regex CNJ e superiores
-  - ValidaÃ§Ã£o de formato
-  - ValidaÃ§Ã£o do dÃ­gito CNJ
-  - Flags locais (`FORMATO_INVALIDO`, `ANO_FUTURO`, etc.)
-- **Camada 1 â€” ExistÃªncia em fonte oficial**
-  - DataJud para CNJ
-  - STJ SCON para STJ
-  - EstratÃ©gias para tribunais superiores
-- **Camada 2 â€” ConteÃºdo e metadados**
-  - Assunto, dispositivo, grau, flags TPU
-- **Camada 3 â€” AdequaÃ§Ã£o contextual (LLM)**
-  - InferÃªncia da tese da petiÃ§Ã£o
-  - ComparaÃ§Ã£o da tese com o julgado real
-  - RecomendaÃ§Ã£o final
+- Camada 0 (parser local): `app/parser.py`
+  - Identifica tipo (`CNJ`, `SUPERIOR`, `DESCONHECIDO`)
+  - Gera flags como `FORMATO_INVALIDO`, `DIGITO_INVALIDO`, `ANO_FUTURO`
+- Camada 1 (existencia): `app/verificador.py`
+  - CNJ: consulta DataJud
+  - STJ: consulta SCON
+  - STF/TST: tentativa via DataJud e fallback controlado
+  - Cache em memoria com TTL (`CACHE_TTL_SECONDS`, padrao 600)
+- Camada 2 (conteudo): `app/pipeline.py`
+  - Consolida assunto, dispositivo, grau e flags de metadados
+- Camada 3 (adequacao): `app/llm.py`
+  - Passagem 1: inferencia da tese no contexto
+  - Passagem 2: avaliacao da aderencia da referencia
 
 ## Endpoints
 
-- `POST /verificar`
-- `POST /verificar-lote`
-- `GET /ui`
-- `GET /docs`
+- `GET /` - health basico
+- `GET /ui` - interface web para verificacao unitaria
+- `POST /verificar` - verificacao unica
+- `POST /verificar-lote` - verificacao em lote
+- `GET /docs` - Swagger/OpenAPI
 
-> ObservaÃ§Ã£o importante: a UI (`/ui`) estÃ¡ focada em verificaÃ§Ã£o unitÃ¡ria. O processamento em lote Ã© consumido via API em `/docs` ou Postman/cURL.
+## Estrutura de resposta (resumo)
 
-## InstalaÃ§Ã£o local
+```json
+{
+  "referencia_normalizada": "...",
+  "tribunal_inferido": "...",
+  "existencia": {
+    "status": "EXISTE | EXISTE_COM_DIVERGENCIA | NAO_ENCONTRADO | FORMATO_INVALIDO",
+    "numero_real": "...",
+    "fonte": "...",
+    "url_fonte": "...",
+    "flags": []
+  },
+  "conteudo": {
+    "assunto_real": "...",
+    "dispositivo": "...",
+    "grau": "...",
+    "tema_repetitivo": "...",
+    "flags": []
+  },
+  "adequacao": {
+    "tese_inferida_na_peticao": "...",
+    "adequacao_tematica": "ADEQUADO | PARCIALMENTE_ADEQUADO | INADEQUADO",
+    "adequacao_dispositivo": "UTIL | PARCIALMENTE_UTIL | INUTIL",
+    "peso_precedencial": "ALTO | MEDIO | BAIXO | NULO",
+    "justificativa": "..."
+  },
+  "recomendacao": "MANTER | CORRIGIR | REVISAR | SUBSTITUIR | REMOVER",
+  "nivel_urgencia": "OK | ATENCAO | CRITICO",
+  "sugestao_substituicao": {
+    "tema_inferido": "...",
+    "estrategia": "...",
+    "sugestoes": []
+  }
+}
+```
+
+## Requisitos
+
+- Python 3.11+
+- Dependencias em `requirements.txt`
+
+## Instalacao local
 
 ```bash
 git clone https://github.com/kaiox21/verificador-juridico
 cd verificador-juridico
-python -m venv venv
+python -m venv .venv
 ```
 
-AtivaÃ§Ã£o do ambiente virtual:
+Ativacao do ambiente virtual:
 
 ```bash
 # Linux/macOS
-source venv/bin/activate
+source .venv/bin/activate
 
 # Windows PowerShell
-.\venv\Scripts\Activate.ps1
+.\.venv\Scripts\Activate.ps1
 ```
 
-Instale dependÃªncias:
+Instalacao de dependencias:
 
 ```bash
 pip install -r requirements.txt
 ```
 
-Crie o `.env`:
+Crie o `.env` a partir do exemplo:
 
 ```bash
+# Linux/macOS
 cp .env.example .env
-# Windows sem cp:
-copy .env.example .env
+
+# Windows PowerShell
+Copy-Item .env.example .env
 ```
 
-## VariÃ¡veis de ambiente
+## Variaveis de ambiente
 
-| VariÃ¡vel | ObrigatÃ³ria | DescriÃ§Ã£o |
+| Variavel | Obrigatoria | Uso |
 |---|---|---|
-| `DATAJUD_API_KEY` | Sim | Chave da API pÃºblica do DataJud |
-| `GEMINI_API_KEYS` | Sim | Chaves Gemini separadas por vÃ­rgula |
-| `GROQ_API_KEY` | Sim | Chave Groq para fallback LLM |
-| `CACHE_TTL_SECONDS` | NÃ£o | TTL do cache (padrÃ£o: 600) |
+| `DATAJUD_API_KEY` | Nao (mas recomendada) | Consulta de processos em DataJud |
+| `GEMINI_API_KEYS` | Nao (se usar Groq) | Chaves Gemini separadas por virgula |
+| `GROQ_API_KEY` | Nao (se usar Gemini) | Fallback de LLM |
+| `GROQ_MODEL` | Nao | Modelo Groq (padrao: `llama-3.1-8b-instant`) |
+| `CACHE_TTL_SECONDS` | Nao | TTL do cache de existencia (padrao: `600`) |
 
-## Testes
+Observacoes:
 
-Os testes rodam offline - sem necessidade de API keys ou acesso a internet.
+- Sem `DATAJUD_API_KEY`, a API continua respondendo, mas consultas que dependem de DataJud voltam como nao encontradas/indisponiveis.
+- Sem `GEMINI_API_KEYS` e sem `GROQ_API_KEY`, a camada de adequacao retorna status `INDETERMINADO` com justificativa explicita.
 
-```bash
-pytest tests/ -v
-```
-
-Cobertura atual: 12 testes unitarios cobrindo parser, pipeline e guardrails de consistencia.
-
-
-## ExecuÃ§Ã£o
+## Execucao
 
 ```bash
 python -m uvicorn app.main:app --reload
@@ -105,23 +136,23 @@ python -m uvicorn app.main:app --reload
 
 Acesse:
 
-- [http://localhost:8000/ui](http://localhost:8000/ui)
-- [http://localhost:8000/docs](http://localhost:8000/docs)
+- `http://localhost:8000/ui`
+- `http://localhost:8000/docs`
 
-## Exemplos de uso
+## Exemplos
 
-### VerificaÃ§Ã£o unitÃ¡ria
+Verificacao unitaria:
 
 ```bash
 curl -X POST http://localhost:8000/verificar \
   -H "Content-Type: application/json" \
   -d '{
     "referencia": "REsp 1.810.170/RS",
-    "contexto": "Conforme entendimento pacificado no STJ, a cobranÃ§a de taxa de conveniÃªncia Ã© abusiva ao consumidor."
+    "contexto": "Conforme entendimento pacificado no STJ..."
   }'
 ```
 
-### VerificaÃ§Ã£o em lote
+Verificacao em lote:
 
 ```bash
 curl -X POST http://localhost:8000/verificar-lote \
@@ -130,100 +161,60 @@ curl -X POST http://localhost:8000/verificar-lote \
     "referencias": [
       "REsp 1.810.170/RS",
       "0815641-45.2025.8.10.0040",
-      "1234567-89.2030.8.26.0001",
-      "processo abc123 sem formato"
+      "1234567-89.2030.8.26.0001"
     ],
-    "contexto": "Trecho Ãºnico da peÃ§a em que as referÃªncias sÃ£o usadas."
+    "contexto": "Trecho unico da peca em que as referencias sao usadas."
   }'
 ```
 
-## Estrutura de resposta (resumo)
+## Testes
 
-```json
-{
-  "referencia_normalizada": "...",
-  "tribunal_inferido": "...",
-  "existencia": { "status": "...", "numero_real": "...", "flags": [] },
-  "conteudo": { "assunto_real": "...", "dispositivo": "...", "grau": "...", "flags": [] },
-  "adequacao": {
-    "tese_inferida_na_peticao": "...",
-    "adequacao_tematica": "...",
-    "adequacao_dispositivo": "...",
-    "peso_precedencial": "...",
-    "justificativa": "..."
-  },
-  "recomendacao": "...",
-  "nivel_urgencia": "...",
-  "sugestao_substituicao": { "tema_inferido": "...", "sugestoes": [] }
-}
+Comando validado no projeto:
+
+```bash
+python -m pytest -q
 ```
 
-## Casos oficiais do desafio
+Estado atual da suite:
 
-### Caso 1
-
-```json
-{
-  "referencia": "REsp 1.810.170/RS",
-  "contexto": "Conforme entendimento pacificado no STJ, a cobranÃ§a de taxa de conveniÃªncia Ã© abusiva ao consumidor..."
-}
-```
-
-### Caso 2
-
-```json
-{
-  "referencia": "0815641-45.2025.8.10.0040",
-  "contexto": "No Ã¢mbito deste EgrÃ©gio Tribunal de JustiÃ§a do Estado do MaranhÃ£o..."
-}
-```
+- 12 testes (`tests/test_verificador.py`)
+- Cobertura de parser, pipeline e guardrails
 
 ## Auditoria
 
-Cada verificaÃ§Ã£o gera uma linha em:
+Cada verificacao registra trilha em JSONL:
 
-- `app/auditoria/verificacoes.jsonl`
+- Ambiente local: `app/auditoria/verificacoes.jsonl`
+- Ambiente serverless (Vercel): `/tmp/verificador_auditoria/verificacoes.jsonl`
 
-Com:
+## Deploy
 
-- entrada
-- parse
-- evidÃªncia de fonte
-- resultado final
+### Vercel
 
-## Deploy (Vercel)
+O projeto ja possui `vercel.json` com roteamento para `app/main.py`.
 
-1. FaÃ§a push do repositÃ³rio no GitHub.
-2. Na Vercel: **Add New... > Project** e selecione o repositÃ³rio.
-3. Mantenha as configuraÃ§Ãµes padrÃ£o (hÃ¡ `vercel.json` no projeto).
-4. Cadastre variÃ¡veis de ambiente:
-   - `DATAJUD_API_KEY`
-   - `GEMINI_API_KEYS` 
-   - `GROQ_API_KEY` 
-   - `CACHE_TTL_SECONDS` (opcional)
-5. FaÃ§a o deploy.
+Variaveis recomendadas no deploy:
 
-Rotas de uso apÃ³s deploy:
+- `DATAJUD_API_KEY`
+- `GEMINI_API_KEYS`
+- `GROQ_API_KEY`
+- `GROQ_MODEL`
+- `CACHE_TTL_SECONDS`
 
-- `/ui`
-- `/docs`
-- `/verificar`
-- `/verificar-lote`
+### Procfile
 
-## Stack
+Existe `Procfile` para execucao tipo Heroku:
 
-- FastAPI
-- httpx
-- DataJud (CNJ)
-- STJ SCON
-- Gemini API / Groq API
+```bash
+web: uvicorn app.main:app --host 0.0.0.0 --port $PORT
+```
 
-## LimitaÃ§Ãµes atuais
+## Limitacoes atuais
 
-- DependÃªncia de disponibilidade das APIs externas
-- Qualidade da camada LLM depende do contexto enviado
-- Cobertura de metadados varia por tribunal/fonte
+- Dependencia de disponibilidade de fontes externas (DataJud/STJ)
+- Variacao de metadados por tribunal/fonte
+- Qualidade da avaliacao contextual depende do contexto enviado para LLM
 
-## LicenÃ§a
+## Licenca
 
-Defina a licenÃ§a do projeto (ex.: MIT).
+Licenca ainda nao definida no repositorio.
