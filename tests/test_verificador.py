@@ -136,6 +136,7 @@ async def test_pipeline_caso2_cnj_extinto():
     assert resultado.recomendacao == "REMOVER"
     assert resultado.nivel_urgencia == "CRITICO"
     assert resultado.existencia.status == "EXISTE_COM_DIVERGENCIA"
+    assert "VARA_NAO_ZERO_PRIMEIRO_GRAU" in resultado.existencia.flags
     assert resultado.conteudo.dispositivo == "EXTINTO_SEM_MERITO"
     assert "EXTINTO_SEM_MERITO" in resultado.conteudo.flags
 
@@ -185,3 +186,72 @@ async def test_pipeline_nao_encontrado():
 
     assert resultado.existencia.status == "NAO_ENCONTRADO"
     assert resultado.recomendacao == "REMOVER"
+
+
+@pytest.mark.asyncio
+async def test_guardrail_remover_com_urgencia_ok_vira_critico():
+    referencia = "RE 999999/DF"
+    contexto = "qualquer contexto"
+
+    mock_existencia = {
+        "encontrado": True,
+        "numero_real": "0001234-17.2023.8.26.0000",
+        "assunto": "Qualquer",
+        "grau": "segundo grau",
+        "dispositivo": "NAO_IDENTIFICADO",
+        "flags": [],
+        "fonte": "Datajud",
+    }
+    mock_adequacao = {
+        "tese_inferida_na_peticao": "qualquer",
+        "adequacao_tematica": "INADEQUADO",
+        "adequacao_dispositivo": "INUTIL",
+        "peso_precedencial": "NULO",
+        "justificativa": "Julgado inadequado.",
+        "recomendacao": "REMOVER",
+        "nivel_urgencia": "OK",
+    }
+
+    with patch("app.pipeline.verificar_existencia", new=AsyncMock(return_value=mock_existencia)), \
+         patch("app.pipeline.analisar_adequacao", new=AsyncMock(return_value=mock_adequacao)), \
+         patch("app.pipeline.sugerir_substituicao", new=AsyncMock(return_value=None)), \
+         patch("app.pipeline.registrar_auditoria"):
+        resultado = await executar_pipeline(referencia, contexto)
+
+    assert resultado.nivel_urgencia == "CRITICO"
+    assert resultado.recomendacao == "REMOVER"
+
+
+@pytest.mark.asyncio
+async def test_guardrail_inadequado_e_inutil_vira_peso_nulo():
+    referencia = "RE 999998/DF"
+    contexto = "qualquer contexto"
+
+    mock_existencia = {
+        "encontrado": True,
+        "numero_real": "0001234-17.2023.8.26.0000",
+        "assunto": "Qualquer",
+        "grau": "segundo grau",
+        "dispositivo": "NAO_IDENTIFICADO",
+        "flags": [],
+        "fonte": "Datajud",
+    }
+    mock_adequacao = {
+        "tese_inferida_na_peticao": "qualquer",
+        "adequacao_tematica": "INADEQUADO",
+        "adequacao_dispositivo": "INUTIL",
+        "peso_precedencial": "MEDIO",
+        "justificativa": "Julgado inadequado.",
+        "recomendacao": "MANTER",
+        "nivel_urgencia": "OK",
+    }
+
+    with patch("app.pipeline.verificar_existencia", new=AsyncMock(return_value=mock_existencia)), \
+         patch("app.pipeline.analisar_adequacao", new=AsyncMock(return_value=mock_adequacao)), \
+         patch("app.pipeline.sugerir_substituicao", new=AsyncMock(return_value=None)), \
+         patch("app.pipeline.registrar_auditoria"):
+        resultado = await executar_pipeline(referencia, contexto)
+
+    assert resultado.adequacao.peso_precedencial == "NULO"
+    assert resultado.recomendacao == "REMOVER"
+    assert resultado.nivel_urgencia == "CRITICO"

@@ -1,3 +1,5 @@
+import asyncio
+
 from dotenv import load_dotenv
 
 load_dotenv()
@@ -48,7 +50,7 @@ async def verificar(body: VerificacaoRequest):
 
 @app.post("/verificar-lote", response_model=VerificacaoLoteResponse)
 async def verificar_lote(body: VerificacaoLoteRequest):
-    resultados = []
-    for referencia in body.referencias:
-        resultados.append(await executar_pipeline(referencia, body.contexto))
-    return VerificacaoLoteResponse(total=len(resultados), resultados=resultados)
+    resultados = await asyncio.gather(
+        *[executar_pipeline(ref, body.contexto) for ref in body.referencias]
+    )
+    return VerificacaoLoteResponse(total=len(resultados), resultados=list(resultados))

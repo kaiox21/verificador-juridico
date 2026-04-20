@@ -1,40 +1,40 @@
-# Verificador de Referências Jurídicas
+﻿# Verificador de ReferÃªncias JurÃ­dicas
 
-API REST para validar referências jurídicas citadas em peças processuais geradas (ou apoiadas) por IA, reduzindo risco de alucinações e citações inadequadas.
+API REST para validar referÃªncias jurÃ­dicas citadas em peÃ§as processuais geradas (ou apoiadas) por IA, reduzindo risco de alucinaÃ§Ãµes e citaÃ§Ãµes inadequadas.
 
 ## Status da entrega
 
-Este projeto está alinhado com o **nível avançado** do mini desafio:
+Este projeto estÃ¡ alinhado com o **nÃ­vel avanÃ§ado** do mini desafio:
 
 - Parser CNJ + tribunais superiores
-- Verificação de existência (DataJud / STJ SCON)
-- Saída estruturada em 3 dimensões (`existencia`, `conteudo`, `adequacao`)
-- Validação de dígito CNJ (módulo 97-10)
-- Flags automáticas por metadados (ex.: `EXTINTO_SEM_MERITO`)
-- Camada de adequação com LLM (duas passagens)
-- Cache básico de existência (TTL)
+- VerificaÃ§Ã£o de existÃªncia (DataJud / STJ SCON)
+- SaÃ­da estruturada em 3 dimensÃµes (`existencia`, `conteudo`, `adequacao`)
+- ValidaÃ§Ã£o de dÃ­gito CNJ (mÃ³dulo 97-10)
+- Flags automÃ¡ticas por metadados (ex.: `EXTINTO_SEM_MERITO`)
+- Camada de adequaÃ§Ã£o com LLM (duas passagens)
+- Cache bÃ¡sico de existÃªncia (TTL)
 - Processamento em lote (`POST /verificar-lote`)
-- Sugestão de substituição quando a referência é inadequada
+- SugestÃ£o de substituiÃ§Ã£o quando a referÃªncia Ã© inadequada
 - Cobertura ampliada (TRFs, STF, TST)
 - Trilha de auditoria em `app/auditoria/verificacoes.jsonl`
 
 ## Arquitetura
 
-- **Camada 0 — Parser local**
+- **Camada 0 â€” Parser local**
   - Regex CNJ e superiores
-  - Validação de formato
-  - Validação do dígito CNJ
+  - ValidaÃ§Ã£o de formato
+  - ValidaÃ§Ã£o do dÃ­gito CNJ
   - Flags locais (`FORMATO_INVALIDO`, `ANO_FUTURO`, etc.)
-- **Camada 1 — Existência em fonte oficial**
+- **Camada 1 â€” ExistÃªncia em fonte oficial**
   - DataJud para CNJ
   - STJ SCON para STJ
-  - Estratégias para tribunais superiores
-- **Camada 2 — Conteúdo e metadados**
+  - EstratÃ©gias para tribunais superiores
+- **Camada 2 â€” ConteÃºdo e metadados**
   - Assunto, dispositivo, grau, flags TPU
-- **Camada 3 — Adequação contextual (LLM)**
-  - Inferência da tese da petição
-  - Comparação da tese com o julgado real
-  - Recomendação final
+- **Camada 3 â€” AdequaÃ§Ã£o contextual (LLM)**
+  - InferÃªncia da tese da petiÃ§Ã£o
+  - ComparaÃ§Ã£o da tese com o julgado real
+  - RecomendaÃ§Ã£o final
 
 ## Endpoints
 
@@ -43,9 +43,9 @@ Este projeto está alinhado com o **nível avançado** do mini desafio:
 - `GET /ui`
 - `GET /docs`
 
-> Observação importante: a UI (`/ui`) está focada em verificação unitária. O processamento em lote é consumido via API em `/docs` ou Postman/cURL.
+> ObservaÃ§Ã£o importante: a UI (`/ui`) estÃ¡ focada em verificaÃ§Ã£o unitÃ¡ria. O processamento em lote Ã© consumido via API em `/docs` ou Postman/cURL.
 
-## Instalação local
+## InstalaÃ§Ã£o local
 
 ```bash
 git clone https://github.com/kaiox21/verificador-juridico
@@ -53,7 +53,7 @@ cd verificador-juridico
 python -m venv venv
 ```
 
-Ativação do ambiente virtual:
+AtivaÃ§Ã£o do ambiente virtual:
 
 ```bash
 # Linux/macOS
@@ -63,7 +63,7 @@ source venv/bin/activate
 .\venv\Scripts\Activate.ps1
 ```
 
-Instale dependências:
+Instale dependÃªncias:
 
 ```bash
 pip install -r requirements.txt
@@ -77,16 +77,27 @@ cp .env.example .env
 copy .env.example .env
 ```
 
-## Variáveis de ambiente
+## VariÃ¡veis de ambiente
 
-| Variável | Obrigatória | Descrição |
+| VariÃ¡vel | ObrigatÃ³ria | DescriÃ§Ã£o |
 |---|---|---|
-| `DATAJUD_API_KEY` | Sim | Chave da API pública do DataJud |
-| `GEMINI_API_KEYS` | Sim | Chaves Gemini separadas por vírgula |
+| `DATAJUD_API_KEY` | Sim | Chave da API pÃºblica do DataJud |
+| `GEMINI_API_KEYS` | Sim | Chaves Gemini separadas por vÃ­rgula |
 | `GROQ_API_KEY` | Sim | Chave Groq para fallback LLM |
-| `CACHE_TTL_SECONDS` | Não | TTL do cache (padrão: 600) |
+| `CACHE_TTL_SECONDS` | NÃ£o | TTL do cache (padrÃ£o: 600) |
 
-## Execução
+## Testes
+
+Os testes rodam offline - sem necessidade de API keys ou acesso a internet.
+
+```bash
+pytest tests/ -v
+```
+
+Cobertura atual: 12 testes unitarios cobrindo parser, pipeline e guardrails de consistencia.
+
+
+## ExecuÃ§Ã£o
 
 ```bash
 python -m uvicorn app.main:app --reload
@@ -99,18 +110,18 @@ Acesse:
 
 ## Exemplos de uso
 
-### Verificação unitária
+### VerificaÃ§Ã£o unitÃ¡ria
 
 ```bash
 curl -X POST http://localhost:8000/verificar \
   -H "Content-Type: application/json" \
   -d '{
     "referencia": "REsp 1.810.170/RS",
-    "contexto": "Conforme entendimento pacificado no STJ, a cobrança de taxa de conveniência é abusiva ao consumidor."
+    "contexto": "Conforme entendimento pacificado no STJ, a cobranÃ§a de taxa de conveniÃªncia Ã© abusiva ao consumidor."
   }'
 ```
 
-### Verificação em lote
+### VerificaÃ§Ã£o em lote
 
 ```bash
 curl -X POST http://localhost:8000/verificar-lote \
@@ -122,7 +133,7 @@ curl -X POST http://localhost:8000/verificar-lote \
       "1234567-89.2030.8.26.0001",
       "processo abc123 sem formato"
     ],
-    "contexto": "Trecho único da peça em que as referências são usadas."
+    "contexto": "Trecho Ãºnico da peÃ§a em que as referÃªncias sÃ£o usadas."
   }'
 ```
 
@@ -154,7 +165,7 @@ curl -X POST http://localhost:8000/verificar-lote \
 ```json
 {
   "referencia": "REsp 1.810.170/RS",
-  "contexto": "Conforme entendimento pacificado no STJ, a cobrança de taxa de conveniência é abusiva ao consumidor..."
+  "contexto": "Conforme entendimento pacificado no STJ, a cobranÃ§a de taxa de conveniÃªncia Ã© abusiva ao consumidor..."
 }
 ```
 
@@ -163,13 +174,13 @@ curl -X POST http://localhost:8000/verificar-lote \
 ```json
 {
   "referencia": "0815641-45.2025.8.10.0040",
-  "contexto": "No âmbito deste Egrégio Tribunal de Justiça do Estado do Maranhão..."
+  "contexto": "No Ã¢mbito deste EgrÃ©gio Tribunal de JustiÃ§a do Estado do MaranhÃ£o..."
 }
 ```
 
 ## Auditoria
 
-Cada verificação gera uma linha em:
+Cada verificaÃ§Ã£o gera uma linha em:
 
 - `app/auditoria/verificacoes.jsonl`
 
@@ -177,22 +188,22 @@ Com:
 
 - entrada
 - parse
-- evidência de fonte
+- evidÃªncia de fonte
 - resultado final
 
 ## Deploy (Vercel)
 
-1. Faça push do repositório no GitHub.
-2. Na Vercel: **Add New... > Project** e selecione o repositório.
-3. Mantenha as configurações padrão (há `vercel.json` no projeto).
-4. Cadastre variáveis de ambiente:
+1. FaÃ§a push do repositÃ³rio no GitHub.
+2. Na Vercel: **Add New... > Project** e selecione o repositÃ³rio.
+3. Mantenha as configuraÃ§Ãµes padrÃ£o (hÃ¡ `vercel.json` no projeto).
+4. Cadastre variÃ¡veis de ambiente:
    - `DATAJUD_API_KEY`
    - `GEMINI_API_KEYS` 
    - `GROQ_API_KEY` 
    - `CACHE_TTL_SECONDS` (opcional)
-5. Faça o deploy.
+5. FaÃ§a o deploy.
 
-Rotas de uso após deploy:
+Rotas de uso apÃ³s deploy:
 
 - `/ui`
 - `/docs`
@@ -207,12 +218,12 @@ Rotas de uso após deploy:
 - STJ SCON
 - Gemini API / Groq API
 
-## Limitações atuais
+## LimitaÃ§Ãµes atuais
 
-- Dependência de disponibilidade das APIs externas
+- DependÃªncia de disponibilidade das APIs externas
 - Qualidade da camada LLM depende do contexto enviado
 - Cobertura de metadados varia por tribunal/fonte
 
-## Licença
+## LicenÃ§a
 
-Defina a licença do projeto (ex.: MIT).
+Defina a licenÃ§a do projeto (ex.: MIT).

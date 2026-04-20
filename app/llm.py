@@ -234,11 +234,12 @@ async def chamar_llm(prompt: str) -> str:
 # Passagem 1 - Inferir tese 
 # ---------------------------------------------------------------------------
 async def inferir_tese(referencia: str, contexto: str) -> dict:
+    contexto_truncado = contexto[:2000] if len(contexto) > 2000 else contexto
     prompt = f"""Você é um especialista em direito processual brasileiro.
 
 Analise o trecho de petição abaixo, onde a referência "{referencia}" é citada:
 
-"{contexto}"
+"{contexto_truncado}"
 
 Responda em JSON com exatamente este formato:
 {{
@@ -266,12 +267,13 @@ async def avaliar_adequacao(
     grau: str,
     flags: list
 ) -> Dict[str, Any]:
+    tese_truncada = tese_inferida[:2000] if len(tese_inferida) > 2000 else tese_inferida
     flags_str = ", ".join(flags) if flags else "nenhuma"
 
     prompt = f"""Você é um especialista em direito processual brasileiro.
 
 A petição usa uma referência jurídica para sustentar a seguinte tese:
-"{tese_inferida}"
+"{tese_truncada}"
 
 O julgado real tem estas características:
 - Assunto: {assunto_real}
